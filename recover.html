@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow,noarchive">
+<title>Ryoku-Do | שחזור סיסמה</title>
+<link rel="stylesheet" href="theme.css?v=20260929-recover">
+<style>
+body{background:#f5f1e8;color:#171717;font-family:Arial,sans-serif;margin:0}
+main{max-width:620px;margin:0 auto;padding:48px 16px}
+.card{background:#fff;border:1px solid #e6ddcf;border-radius:18px;padding:24px;box-shadow:0 10px 30px #0000000d}
+h1{margin-top:0}.muted{color:#6d7078;line-height:1.6}
+.btn{display:inline-block;border:0;border-radius:10px;padding:12px 18px;font-weight:700;text-decoration:none;cursor:pointer}
+.gold{background:#c4a15f;color:#171717}.err{background:#fdeaea;color:#8b1c21;padding:12px;border-radius:10px}
+</style>
+</head>
+<body>
+<main>
+  <section class="card">
+    <div class="section-kicker">RYOKU–DO · ADMIN RECOVERY</div>
+    <h1>שחזור גישה למערכת הניהול</h1>
+    <p class="muted">הקישור במייל מוביל קודם לדף הזה בכוונה. רק לחיצה שלך על הכפתור למטה תפעיל את קישור השחזור החד־פעמי.</p>
+    <div id="state"></div>
+  </section>
+</main>
+<script>
+const out=document.getElementById('state');
+const raw=new URLSearchParams(location.search).get('confirmation_url')||'';
+try{
+  const u=new URL(raw);
+  const okHost=u.hostname.endsWith('.supabase.co');
+  const okPath=u.pathname==='/auth/v1/verify';
+  const okType=(u.searchParams.get('type')||'')==='recovery';
+  if(!okHost||!okPath||!okType) throw new Error('bad');
+  const p=document.createElement('p');
+  p.textContent='הקישור מוכן. לחץ כדי להמשיך לאיפוס הסיסמה.';
+  const a=document.createElement('a');
+  a.className='btn gold';
+  a.textContent='המשך לאיפוס הסיסמה';
+  a.href=u.toString();
+  a.rel='noreferrer';
+  out.append(p,a);
+}catch(e){
+  out.innerHTML='<div class="err">קישור השחזור אינו תקין. בקש קישור חדש.</div>';
+}
+</script>
+</body>
+</html>
