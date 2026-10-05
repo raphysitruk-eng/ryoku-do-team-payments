@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="robots" content="noindex,nofollow,noarchive"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://www.ryokudoacademy.com; connect-src 'self' https://zwgpvwxdofjidshsiaek.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
+<meta name="robots" content="noindex,nofollow,noarchive"><meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https://www.ryokudoacademy.com; connect-src 'self' https://zwgpvwxdofjidshsiaek.supabase.co; object-src 'none'; base-uri 'self'; form-action 'self'; upgrade-insecure-requests">
 <title>Ryoku-Do | שחזור סיסמה</title>
 <link rel="stylesheet" href="theme.css?v=20260929-recover">
 <style>
@@ -24,26 +24,6 @@ h1{margin-top:0}.muted{color:#6d7078;line-height:1.6}
     <div id="state"></div>
   </section>
 </main>
-<script>
-const out=document.getElementById('state');
-const raw=new URLSearchParams(location.search).get('confirmation_url')||'';
-try{
-  const u=new URL(raw);
-  const okHost=u.hostname.endsWith('.supabase.co');
-  const okPath=u.pathname==='/auth/v1/verify';
-  const okType=(u.searchParams.get('type')||'')==='recovery';
-  if(!okHost||!okPath||!okType) throw new Error('bad');
-  const p=document.createElement('p');
-  p.textContent='הקישור מוכן. לחץ כדי להמשיך לאיפוס הסיסמה.';
-  const a=document.createElement('a');
-  a.className='btn gold';
-  a.textContent='המשך לאיפוס הסיסמה';
-  a.href=u.toString();
-  a.rel='noreferrer';
-  out.append(p,a);
-}catch(e){
-  out.innerHTML='<div class="err">קישור השחזור אינו תקין. בקש קישור חדש.</div>';
-}
-</script>
+<script src="recover.js?v=20261005-1"></script>
 </body>
 </html>
