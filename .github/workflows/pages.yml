@@ -1,4 +1,4 @@
-name: Deploy Ryoku-Do Team Payments to GitHub Pages
+name: Validate Ryoku-Do Team Payments
 
 on:
   push:
@@ -11,12 +11,6 @@ on:
 
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: pages
-  cancel-in-progress: false
 
 jobs:
   validate:
@@ -63,25 +57,3 @@ jobs:
           grep -q 'src="recover.js' recover.html
           echo 'JavaScript syntax and CSP checks OK'
 
-  deploy:
-    needs: validate
-    if: github.event_name != 'pull_request'
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Setup Pages
-        uses: actions/configure-pages@v5
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v4
-        with:
-          path: .
-
-      - name: Deploy to GitHub Pages
-        id: deployment
-        uses: actions/deploy-pages@v4
