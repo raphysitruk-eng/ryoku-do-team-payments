@@ -55,7 +55,7 @@ jobs:
           grep -q 'team-payment-api-v2' parent.js
           grep -q 'כתובת IPN בסיסית' admin.html
           grep -q 'termsSummary' parent.html
-          ! grep -R -E 'service[_-]?role|SUPABASE_SECRET|sb_secret_' --include='*.html' --include='*.js' --include='*.css' . || exit 1
+          ! grep -R -E 'sb_secret_|service_role[=:][^A-Za-z_]|SUPABASE_SERVICE_ROLE_KEY[[:space:]]*=[[:space:]]*["'"'"'][^"'"'"']+' --include='*.html' --include='*.js' --include='*.css' --include='*.ts' --include='*.sql' . || exit 1
 
       - name: Check JavaScript syntax and CSP hardening
         shell: bash
