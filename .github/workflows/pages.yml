@@ -36,7 +36,7 @@ jobs:
           test -s theme.css
           grep -q 'team-payment-api-v2' admin.html
           grep -q 'team-payment-api-v2' parent.html
-          grep -q 'יצירת כתובת IPN מלאה' admin.html
+          grep -q 'כתובת IPN בסיסית' admin.html
           grep -q 'termsSummary' parent.html
           ! grep -R -E 'service[_-]?role|SUPABASE_SECRET|sb_secret_' --include='*.html' --include='*.js' --include='*.css' . || exit 1
 
