@@ -48,28 +48,28 @@ jobs:
           test -s terms.html
           test -s thank-you.html
           test -s theme.css
-          grep -q 'team-payment-api-v2' admin.html
-          grep -q 'team-payment-api-v2' parent.html
+          test -s admin.js
+          test -s parent.js
+          test -s recover.js
+          grep -q 'team-payment-api-v2' admin.js
+          grep -q 'team-payment-api-v2' parent.js
           grep -q 'כתובת IPN בסיסית' admin.html
           grep -q 'termsSummary' parent.html
           ! grep -R -E 'service[_-]?role|SUPABASE_SECRET|sb_secret_' --include='*.html' --include='*.js' --include='*.css' . || exit 1
 
-      - name: Check inline JavaScript syntax
+      - name: Check JavaScript syntax and CSP hardening
         shell: bash
         run: |
-          node <<'NODE'
-          const fs = require('fs');
-          for (const file of ['admin.html','parent.html','thank-you.html','terms.html']) {
-            const html = fs.readFileSync(file, 'utf8');
-            const re = /<script(?:[^>]*)>([\s\S]*?)<\/script>/gi;
-            let m;
-            while ((m = re.exec(html))) {
-              const js = m[1].trim();
-              if (js) new Function(js);
-            }
-          }
-          console.log('Inline JavaScript syntax OK');
-          NODE
+          node --check admin.js
+          node --check parent.js
+          node --check recover.js
+          ! grep -q "script-src 'self' 'unsafe-inline'" admin.html
+          ! grep -q "script-src 'self' 'unsafe-inline'" parent.html
+          ! grep -q "script-src 'self' 'unsafe-inline'" recover.html
+          grep -q 'src="admin.js' admin.html
+          grep -q 'src="parent.js' parent.html
+          grep -q 'src="recover.js' recover.html
+          echo 'JavaScript syntax and CSP checks OK'
 
   deploy:
     needs: validate
