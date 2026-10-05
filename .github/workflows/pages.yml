@@ -37,6 +37,12 @@ jobs:
           test -s admin.js
           test -s parent.js
           test -s recover.js
+          test -s supabase/functions/team-payment-api-v2/index.ts
+          test -s supabase/functions/team-payment-provider-hook/index.ts
+          test -s supabase/functions/team-payment-invoice4u-ipn/index.ts
+          test -s supabase/migrations/20261005183456_team_payment_operational_hardening.sql
+          test -s supabase/migrations/20261005183549_team_payment_monitoring_and_retention.sql
+          test -s supabase/migrations/20261005183855_team_payment_october_production_baseline.sql
           grep -q 'team-payment-api-v2' admin.js
           grep -q 'team-payment-api-v2' parent.js
           grep -q 'כתובת IPN בסיסית' admin.html
