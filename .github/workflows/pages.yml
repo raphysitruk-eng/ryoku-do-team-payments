@@ -16,7 +16,46 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+
+      - name: Validate portal files
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -s admin.html
+          test -s parent.html
+          test -s terms.html
+          test -s thank-you.html
+          test -s theme.css
+          grep -q 'team-payment-api-v2' admin.html
+          grep -q 'team-payment-api-v2' parent.html
+          grep -q 'יצירת כתובת IPN מלאה' admin.html
+          grep -q 'termsSummary' parent.html
+          ! grep -R -E 'service[_-]?role|SUPABASE_SECRET|sb_secret_' --include='*.html' --include='*.js' --include='*.css' . || exit 1
+
+      - name: Check inline JavaScript syntax
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          for (const file of ['admin.html','parent.html','thank-you.html','terms.html']) {
+            const html = fs.readFileSync(file, 'utf8');
+            const re = /<script(?:[^>]*)>([\s\S]*?)<\/script>/gi;
+            let m;
+            while ((m = re.exec(html))) {
+              const js = m[1].trim();
+              if (js) new Function(js);
+            }
+          }
+          console.log('Inline JavaScript syntax OK');
+          NODE
+
   deploy:
+    needs: validate
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
