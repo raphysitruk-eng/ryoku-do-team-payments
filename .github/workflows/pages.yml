@@ -51,6 +51,11 @@ jobs:
           grep -q 'admin_student_detail' supabase/functions/team-payment-api-v2/index.ts
           grep -q 'accounts.ryokudoacademy.com' supabase/functions/team-payment-api-v2/index.ts
           grep -q 'accounts.ryokudoacademy.com' portal.js
+          grep -q 'public_portal_setup' supabase/functions/team-payment-api-v2/index.ts
+          grep -q 'parent_portal_payments' supabase/functions/team-payment-api-v2/index.ts
+          grep -q 'admin_parent_password_reset' supabase/functions/team-payment-api-v2/index.ts
+          grep -q 'portal_setup_required' parent.js
+          grep -q 'parent_portal_payments' portal.js
           grep -q 'team_payment_run_maintenance' supabase/migrations/20261005183549_team_payment_monitoring_and_retention.sql
           grep -q 'Leaked Password Protection' OPERATIONS.md
           grep -q 'branch protection/ruleset' OPERATIONS.md
@@ -62,11 +67,14 @@ jobs:
           node --check admin.js
           node --check parent.js
           node --check recover.js
+          node --check portal.js
           ! grep -q "script-src 'self' 'unsafe-inline'" admin.html
           ! grep -q "script-src 'self' 'unsafe-inline'" parent.html
           ! grep -q "script-src 'self' 'unsafe-inline'" recover.html
+          ! grep -q "script-src 'self' 'unsafe-inline'" portal.html
           grep -q 'src="admin.js' admin.html
           grep -q 'src="parent.js' parent.html
           grep -q 'src="recover.js' recover.html
+          grep -q 'src="portal.js' portal.html
           echo 'JavaScript syntax and CSP checks OK'
 
