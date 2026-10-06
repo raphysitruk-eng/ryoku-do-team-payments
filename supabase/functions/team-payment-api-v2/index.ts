@@ -545,6 +545,9 @@ Deno.serve(async (req:Request)=>{
 
     if(input.action==="admin_mark_sent") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const {data:current}=await s.from("team_payment_requests").select("request_status").eq("id",input.id).maybeSingle();
+      if(!current) return out({ok:false,code:"NOT_FOUND"},404);
+      if(!["draft","sent"].includes(current.request_status)) return out({ok:false,code:"NOT_EDITABLE"},409);
       const now=new Date().toISOString();
       const {error}=await s.from("team_payment_requests").update({request_status:"sent",sent_at:now,updated_at:now}).eq("id",input.id);
       if(error) throw error;
@@ -596,6 +599,7 @@ Deno.serve(async (req:Request)=>{
       if(input.payment_status==="cancelled" && input.provider_confirmed!==true) return out({ok:false,code:"PROVIDER_CONFIRM_REQUIRED"},400);
       const {data:current}=await s.from("team_payment_requests").select("request_status,payment_status,form_completed_at,completed_at,provider_recurring_id,cancellation_requested_at,provider_cancellation_required").eq("id",input.id).maybeSingle();
       if(!current) return out({ok:false,code:"NOT_FOUND"},404);
+      if(["active","finished"].includes(input.payment_status)&&!current.form_completed_at) return out({ok:false,code:"FORM_REQUIRED"},409);
       const now=new Date().toISOString();
       const patch:any={payment_status:input.payment_status,updated_at:now};
       if(["active","finished"].includes(input.payment_status)) {
