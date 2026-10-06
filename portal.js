@@ -1,0 +1,45 @@
+const BASE="https://zwgpvwxdofjidshsiaek.supabase.co",KEY="sb_publishable_ghdkoJZwwRIvKTsRJXr2xA_Jhfi9NS6";
+const sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:true,storage:window.localStorage,autoRefreshToken:true,detectSessionInUrl:false}});
+const $=x=>document.getElementById(x),esc=s=>String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])),fmt=d=>d?new Date(d).toLocaleDateString("he-IL"):"—",money=a=>(Number(a||0)/100).toLocaleString("he-IL")+" ₪";
+let profile=null,children=[],selected=null;
+function authPhone(v){let x=String(v||"").replace(/\D/g,"");if(x.startsWith("972"))x="0"+x.slice(3);return /^0\d{8,9}$/.test(x)?"+972"+x.slice(1):""}
+function strong(v){const s=String(v||"");return s.length>=12&&s.length<=128&&/[A-Za-z]/.test(s)&&/\d/.test(s)}
+function empty(el,msg){$(el).innerHTML="<p class='muted'>"+esc(msg)+"</p>"}
+async function signOut(){await sb.auth.signOut();profile=null;children=[];selected=null;$("portalApp").classList.add("hidden");$("logoutBtn").classList.add("hidden");$("loginCard").classList.remove("hidden")}
+async function boot(){const {data}=await sb.auth.getSession();if(data.session)await loadPortal();else $("loginCard").classList.remove("hidden")}
+async function loadPortal(){
+ const {data:{user},error:ue}=await sb.auth.getUser();if(ue||!user)return signOut();
+ const {data:p,error:pe}=await sb.from("profiles").select("id,full_name,phone,email,role,approval_status").eq("id",user.id).maybeSingle();
+ if(pe||!p||p.role!=="parent"||p.approval_status!=="approved"){await signOut();$("loginMsg").innerHTML="<div class='err'>החשבון עדיין אינו מאושר לאזור האישי. יש לפנות להנהלה.</div>";return}
+ profile=p;const {data:c,error:ce}=await sb.from("children").select("id,first_name,last_name,branch,group_name,current_rank,next_rank,joined_on,active").eq("active",true).order("first_name");
+ if(ce)throw ce;children=c||[];$("loginCard").classList.add("hidden");$("portalApp").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");$("welcome").textContent="שלום "+(p.full_name||"");$("parentMeta").textContent=[p.phone,p.email].filter(Boolean).join(" · ");
+ renderTabs();if(children.length)await selectChild(children[0].id);else{$("childArea").classList.add("hidden");$("childTabs").innerHTML="<p class='muted'>עדיין לא משויך חניך לחשבון זה.</p>"}
+}
+function renderTabs(){$("childTabs").innerHTML=children.map(c=>"<button type='button' class='btn soft "+(selected===c.id?"active":"")+"' data-child='"+esc(c.id)+"'>"+esc((c.first_name+" "+c.last_name).trim())+"</button>").join("");document.querySelectorAll("[data-child]").forEach(b=>b.onclick=()=>selectChild(b.dataset.child))}
+async function selectChild(id){
+ selected=id;renderTabs();const child=children.find(x=>x.id===id);if(!child)return;$("childArea").classList.remove("hidden");
+ const now=new Date().toISOString();
+ const [pr,at,ac,bi,gr,ev,rg]=await Promise.all([
+  sb.from("student_progress").select("*").eq("child_id",id).maybeSingle(),
+  sb.from("attendance").select("training_date,status,note").eq("child_id",id).order("training_date",{ascending:false}).limit(20),
+  sb.from("achievements").select("title,achieved_on,certificate_url,note").eq("child_id",id).order("achieved_on",{ascending:false}).limit(20),
+  sb.from("billing_records").select("period_label,status,amount_agorot,receipt_url,due_on,paid_at").eq("child_id",id).order("created_at",{ascending:false}).limit(20),
+  sb.from("grade_resources").select("rank_key,resource_type,title_he,description_he,resource_url").eq("published",true).eq("rank_key",child.next_rank||child.current_rank||"").order("sort_order"),
+  sb.from("events").select("id,event_type,title_he,description_he,starts_at,registration_deadline,branch,registration_open").gte("starts_at",now).order("starts_at").limit(20),
+  sb.from("event_registrations").select("event_id,status").eq("child_id",id)
+ ]);
+ const progress=pr.data||{};const attendance=at.data||[],ach=ac.data||[],billing=bi.data||[],resources=gr.data||[],events=ev.data||[],regs=rg.data||[];
+ const pct=Math.min(100,Math.max(0,Number(progress.progress_percent||0)));$("currentRank").textContent=child.current_rank||"—";$("nextRank").textContent=child.next_rank||"—";$("progressPercent").textContent=pct+"%";$("progressFill").style.width=pct+"%";$("attendanceCount").textContent=attendance.filter(x=>x.status==="present"||x.status==="נוכח").length+"/"+attendance.length;$("monthlyGoal").textContent=progress.monthly_goal||"טרם הוגדר.";$("coachFeedback").textContent=progress.coach_feedback||"טרם הוזן משוב.";$("personalPlan").textContent=progress.personal_plan||"טרם הוגדרה.";$("nextRankMaterial").textContent=progress.next_rank_material||"טרם הוזן חומר.";
+ $("childProfile").innerHTML="<p><b>שם:</b> "+esc((child.first_name+" "+child.last_name).trim())+"<br><b>סניף:</b> "+esc(child.branch||"—")+"<br><b>קבוצה:</b> "+esc(child.group_name||"—")+"<br><b>חבר/ה במועדון מתאריך:</b> "+esc(child.joined_on?fmt(child.joined_on):"—")+"</p>";
+ $("attendanceList").innerHTML=attendance.length?attendance.map(x=>"<div class='list-item'><b>"+esc(fmt(x.training_date))+"</b> · "+esc(x.status)+(x.note?"<br><span class='muted'>"+esc(x.note)+"</span>":"")+"</div>").join(""):"<p class='muted'>עדיין אין נתוני נוכחות.</p>";
+ $("achievementList").innerHTML=ach.length?ach.map(x=>"<div class='list-item'><b>"+esc(x.title)+"</b>"+(x.achieved_on?" · "+esc(fmt(x.achieved_on)):"")+(x.note?"<br><span class='muted'>"+esc(x.note)+"</span>":"")+(safeUrl(x.certificate_url)?"<br><a href='"+esc(x.certificate_url)+"' target='_blank' rel='noopener'>צפייה בתעודה</a>":"")+"</div>").join(""):"<p class='muted'>עדיין אין הישגים להצגה.</p>";
+ $("billingList").innerHTML=billing.length?billing.map(x=>"<div class='list-item'><b>"+esc(x.period_label)+"</b> · "+money(x.amount_agorot)+" · "+esc(payLabel(x.status))+(safeUrl(x.receipt_url)?"<br><a href='"+esc(x.receipt_url)+"' target='_blank' rel='noopener'>פתיחת קבלה</a>":"")+"</div>").join(""):"<p class='muted'>עדיין אין רשומות חיוב באזור האישי.</p>";
+ $("resourceList").innerHTML=resources.length?resources.map(x=>"<div class='list-item'><b>"+esc(x.title_he)+"</b>"+(x.description_he?"<br><span class='muted'>"+esc(x.description_he)+"</span>":"")+(safeUrl(x.resource_url)?"<br><a href='"+esc(x.resource_url)+"' target='_blank' rel='noopener'>פתיחת חומר</a>":"")+"</div>").join(""):"<p class='muted'>חומרי הדרגה יופיעו כאן כאשר יפורסמו.</p>";
+ const regMap=new Map(regs.map(x=>[x.event_id,x.status]));$("eventList").innerHTML=events.length?events.map(x=>"<div class='list-item'><b>"+esc(x.title_he)+"</b> · "+esc(new Date(x.starts_at).toLocaleString("he-IL"))+(x.branch?" · "+esc(x.branch):"")+(x.description_he?"<br><span class='muted'>"+esc(x.description_he)+"</span>":"")+(regMap.has(x.id)?"<br><span class='muted'>סטטוס הרשמה: "+esc(regMap.get(x.id))+"</span>":"")+"</div>").join(""):"<p class='muted'>אין אירועים קרובים להצגה.</p>";
+}
+function safeUrl(v){try{const u=new URL(v);return u.protocol==="https:"}catch{return false}}
+function payLabel(v){return ({paid:"שולם",pending:"ממתין",failed:"נכשל",cancelled:"בוטל",active:"פעיל",finished:"הסתיים"}[v]||v||"—")}
+$("loginForm").onsubmit=async e=>{e.preventDefault();const b=$("loginBtn"),phone=authPhone($("phone").value),password=$("password").value;if(!phone){$("loginMsg").innerHTML="<div class='err'>מספר הטלפון אינו תקין.</div>";return}b.disabled=true;$("loginMsg").textContent="מתחברים…";try{const {data,error}=await sb.auth.signInWithPassword({phone,password});if(error||!data.session)throw error||new Error("LOGIN_FAILED");$("password").value="";$("loginMsg").textContent="";await loadPortal()}catch(e){$("loginMsg").innerHTML="<div class='err'>הכניסה נכשלה. בדקו את מספר הטלפון והסיסמה.</div>"}finally{b.disabled=false}};
+$("logoutBtn").onclick=signOut;$("changePasswordBtn").onclick=()=>{$("passwordModal").classList.remove("hidden");$("passwordMsg").textContent=""};$("passwordClose").onclick=()=>$("passwordModal").classList.add("hidden");
+$("passwordForm").onsubmit=async e=>{e.preventDefault();const p1=$("newPassword").value,p2=$("newPassword2").value;if(!strong(p1)){$("passwordMsg").innerHTML="<div class='err'>הסיסמה חייבת להכיל לפחות 12 תווים, אות באנגלית ומספר.</div>";return}if(p1!==p2){$("passwordMsg").innerHTML="<div class='err'>הסיסמאות אינן זהות.</div>";return}const {error}=await sb.auth.updateUser({password:p1});if(error){$("passwordMsg").innerHTML="<div class='err'>לא ניתן לשנות סיסמה כרגע.</div>";return}$("newPassword").value=$("newPassword2").value="";$("passwordMsg").innerHTML="<div class='info'>הסיסמה עודכנה בהצלחה.</div>"};
+boot().catch(()=>{$("loginMsg").innerHTML="<div class='err'>לא ניתן לטעון כרגע את האזור האישי.</div>"});
