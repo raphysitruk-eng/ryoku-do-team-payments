@@ -151,7 +151,7 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
         last_name:nm.last_name,
         branch:String(r.branch||""),
         group_name:String(r.group_name||""),
-        joined_on:new Date().toISOString().slice(0,10),
+        joined_on:null,
         active:true
       }).select("id").single();
       if(ci||!newChild) throw ci||new Error("PORTAL_CHILD_CREATE_FAILED");
@@ -380,6 +380,11 @@ Deno.serve(async (req:Request)=>{
       const progressIn=(input.progress&&typeof input.progress==="object")?input.progress:{};
       const allowedChild=["branch","group_name","current_rank","next_rank","active"];
       for(const k of allowedChild) if(k in childIn) childPatch[k]=childIn[k];
+      if("joined_on" in childIn){
+        const j=String(childIn.joined_on||"").trim();
+        if(j&&!/^\d{4}-\d{2}-\d{2}$/.test(j)) return out({ok:false,code:"INVALID_JOIN_DATE"},400);
+        childPatch.joined_on=j||null;
+      }
       childPatch.updated_at=new Date().toISOString();
       const {data:child,error}=await s.from("children").update(childPatch).eq("id",id).select("id,parent_id").maybeSingle();
       if(error||!child) return out({ok:false,code:"NOT_FOUND"},404);
