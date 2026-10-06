@@ -102,9 +102,9 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
           full_name:String(c.parent_name||"").trim(),
           role:"parent",
           approval_status:"approved",
-          approval_note:"אושר אוטומטית לאחר אימות טלפון בטופס הנבחרת",
+          approval_note:"אושר אוטומטית באמצעות קישור אישי והתאמת פרטי הבקשה",
           approved_at:now,
-          phone_verified_at:now,
+          phone_verified_at:null,
           updated_at:now
         })
         .eq("id",created.user.id)
@@ -121,9 +121,9 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
         email:String(c.parent_email||"").trim().toLowerCase(),
         full_name:String(c.parent_name||"").trim(),
         approval_status:"approved",
-        approval_note:"אושר אוטומטית לאחר אימות טלפון בטופס הנבחרת",
+        approval_note:"אושר אוטומטית באמצעות קישור אישי והתאמת פרטי הבקשה",
         approved_at:now,
-        phone_verified_at:profile.phone_verified_at||now,
+        phone_verified_at:profile.phone_verified_at||null,
         updated_at:now
       })
       .eq("id",profile.id)
@@ -683,7 +683,7 @@ Deno.serve(async (req:Request)=>{
         request_id:r.id,proof_hash:proofHash,ip_hash:ipHash,expires_at:new Date(Date.now()+30*60*1000).toISOString()
       });
       if(ve) throw ve;
-      await log(s,r.id,"parent","phone_verified",null,{verification_expires_minutes:30});
+      await log(s,r.id,"parent","phone_matched",null,{verification_expires_minutes:30});
       const request={
         student_name:r.student_name,branch:r.branch,group_name:r.group_name,amount_agorot:r.amount_agorot,
         billing_start_date:r.billing_start_date,billing_end_date:r.billing_end_date,number_of_cycles:r.number_of_cycles,
@@ -693,6 +693,7 @@ Deno.serve(async (req:Request)=>{
       const done=["payment_pending","completed"].includes(r.request_status);
       const mayPay=r.request_status==="payment_pending" && !["active","finished","cancelled"].includes(r.payment_status);
       const portalProfile=await findParentProfile(s,r.parent_phone);
+      if(portalProfile?.approval_status==="rejected") return out({ok:false,code:"ACCOUNT_BLOCKED"},403);
       return out({
         ok:true,parent_name:r.parent_name,parent_email:r.parent_email,verification_proof:proof,request,
         status_label:statusLabel(r.request_status),already_completed:done,
