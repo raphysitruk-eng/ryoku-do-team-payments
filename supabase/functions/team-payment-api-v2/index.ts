@@ -689,11 +689,13 @@ Deno.serve(async (req:Request)=>{
       });
       if(ve) throw ve;
       await log(s,r.id,"parent","phone_matched",null,{verification_expires_minutes:30});
+      const {data:termsMeta}=await s.from("team_payment_terms_versions").select("source_url").eq("version",r.terms_version).maybeSingle();
       const request={
         student_name:r.student_name,branch:r.branch,group_name:r.group_name,amount_agorot:r.amount_agorot,
         billing_start_date:r.billing_start_date,billing_end_date:r.billing_end_date,number_of_cycles:r.number_of_cycles,
         parent_note:r.parent_note,season_label:r.season_label,cancellation_notice_days:r.cancellation_notice_days,
-        price_change_notice_days:r.price_change_notice_days,terms_version:r.terms_version,terms_content_hash:r.terms_content_hash
+        price_change_notice_days:r.price_change_notice_days,terms_version:r.terms_version,terms_content_hash:r.terms_content_hash,
+        terms_url:String(termsMeta?.source_url||"")
       };
       const done=["payment_pending","completed"].includes(r.request_status);
       const mayPay=r.request_status==="payment_pending" && !["active","finished","cancelled"].includes(r.payment_status);
