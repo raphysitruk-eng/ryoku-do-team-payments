@@ -1,10 +1,13 @@
-const BASE="https://zwgpvwxdofjidshsiaek.supabase.co",KEY="sb_publishable_ghdkoJZwwRIvKTsRJXr2xA_Jhfi9NS6";
+const BASE="https://zwgpvwxdofjidshsiaek.supabase.co",KEY="sb_publishable_ghdkoJZwwRIvKTsRJXr2xA_Jhfi9NS6",API="https://zwgpvwxdofjidshsiaek.supabase.co/functions/v1/team-payment-api-v2";
 const sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:true,storage:window.localStorage,autoRefreshToken:true,detectSessionInUrl:false}});
 const $=x=>document.getElementById(x),esc=s=>String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])),fmt=d=>d?new Date(d).toLocaleDateString("he-IL"):"—",money=a=>(Number(a||0)/100).toLocaleString("he-IL")+" ₪";
 let profile=null,children=[],selected=null;
 function authPhone(v){let x=String(v||"").replace(/\D/g,"");if(x.startsWith("972"))x="0"+x.slice(3);return /^0\d{8,9}$/.test(x)?"+972"+x.slice(1):""}function loginEmail(v){const p=authPhone(v),d=p.replace(/\D/g,"");return d?"member-"+d+"@accounts.ryokudoacademy.com":""}
 function strong(v){const s=String(v||"");return s.length>=12&&s.length<=128&&/[A-Za-z]/.test(s)&&/\d/.test(s)}
 function empty(el,msg){$(el).innerHTML="<p class='muted'>"+esc(msg)+"</p>"}
+async function portalCall(body){const {data}=await sb.auth.getSession();const token=data.session?.access_token||"";if(!token)throw new Error("UNAUTHORIZED");const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer "+token},body:JSON.stringify(body)}),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.code||"ERROR");return x}
+function reqLabel(v){return ({draft:"טיוטה",sent:"נשלח",opened:"נפתח",form_completed:"טופס הושלם",payment_pending:"ממתין לתשלום",completed:"הושלם",expired:"פג תוקף",cancelled:"בוטל"}[v]||v||"—")}
+function payState(v){return ({not_started:"טרם התחיל",pending:"ממתין",active:"פעיל",failed:"נכשל",finished:"הסתיים",cancelled:"בוטל"}[v]||v||"—")}
 async function signOut(){await sb.auth.signOut();profile=null;children=[];selected=null;$("portalApp").classList.add("hidden");$("logoutBtn").classList.add("hidden");$("loginCard").classList.remove("hidden")}
 async function boot(){const {data}=await sb.auth.getSession();if(data.session)await loadPortal();else $("loginCard").classList.remove("hidden")}
 async function loadPortal(){
@@ -19,21 +22,22 @@ function renderTabs(){$("childTabs").innerHTML=children.map(c=>"<button type='bu
 async function selectChild(id){
  selected=id;renderTabs();const child=children.find(x=>x.id===id);if(!child)return;$("childArea").classList.remove("hidden");
  const now=new Date().toISOString();
- const [pr,at,ac,bi,gr,ev,rg]=await Promise.all([
+ const [pr,at,ac,bi,gr,ev,rg,tp]=await Promise.all([
   sb.from("student_progress").select("*").eq("child_id",id).maybeSingle(),
   sb.from("attendance").select("training_date,status,note").eq("child_id",id).order("training_date",{ascending:false}).limit(20),
   sb.from("achievements").select("title,achieved_on,certificate_url,note").eq("child_id",id).order("achieved_on",{ascending:false}).limit(20),
   sb.from("billing_records").select("period_label,status,amount_agorot,receipt_url,due_on,paid_at").eq("child_id",id).order("created_at",{ascending:false}).limit(20),
   sb.from("grade_resources").select("rank_key,resource_type,title_he,description_he,resource_url").eq("published",true).eq("rank_key",child.next_rank||child.current_rank||"").order("sort_order"),
   sb.from("events").select("id,event_type,title_he,description_he,starts_at,registration_deadline,branch,registration_open").gte("starts_at",now).order("starts_at").limit(20),
-  sb.from("event_registrations").select("event_id,status").eq("child_id",id)
+  sb.from("event_registrations").select("event_id,status").eq("child_id",id),
+  portalCall({action:"parent_portal_payments",child_id:id})
  ]);
- const progress=pr.data||{};const attendance=at.data||[],ach=ac.data||[],billing=bi.data||[],resources=gr.data||[],events=ev.data||[],regs=rg.data||[];
+ const progress=pr.data||{};const attendance=at.data||[],ach=ac.data||[],billing=bi.data||[],resources=gr.data||[],events=ev.data||[],regs=rg.data||[],teamPayments=tp.payments||[];
  const pct=Math.min(100,Math.max(0,Number(progress.progress_percent||0)));$("currentRank").textContent=child.current_rank||"—";$("nextRank").textContent=child.next_rank||"—";$("progressPercent").textContent=pct+"%";$("progressFill").style.width=pct+"%";$("attendanceCount").textContent=attendance.filter(x=>x.status==="present"||x.status==="נוכח").length+"/"+attendance.length;$("monthlyGoal").textContent=progress.monthly_goal||"טרם הוגדר.";$("coachFeedback").textContent=progress.coach_feedback||"טרם הוזן משוב.";$("personalPlan").textContent=progress.personal_plan||"טרם הוגדרה.";$("nextRankMaterial").textContent=progress.next_rank_material||"טרם הוזן חומר.";
  $("childProfile").innerHTML="<p><b>שם:</b> "+esc((child.first_name+" "+child.last_name).trim())+"<br><b>סניף:</b> "+esc(child.branch||"—")+"<br><b>קבוצה:</b> "+esc(child.group_name||"—")+"<br><b>חבר/ה במועדון מתאריך:</b> "+esc(child.joined_on?fmt(child.joined_on):"—")+"</p>";
  $("attendanceList").innerHTML=attendance.length?attendance.map(x=>"<div class='list-item'><b>"+esc(fmt(x.training_date))+"</b> · "+esc(x.status)+(x.note?"<br><span class='muted'>"+esc(x.note)+"</span>":"")+"</div>").join(""):"<p class='muted'>עדיין אין נתוני נוכחות.</p>";
  $("achievementList").innerHTML=ach.length?ach.map(x=>"<div class='list-item'><b>"+esc(x.title)+"</b>"+(x.achieved_on?" · "+esc(fmt(x.achieved_on)):"")+(x.note?"<br><span class='muted'>"+esc(x.note)+"</span>":"")+(safeUrl(x.certificate_url)?"<br><a href='"+esc(x.certificate_url)+"' target='_blank' rel='noopener'>צפייה בתעודה</a>":"")+"</div>").join(""):"<p class='muted'>עדיין אין הישגים להצגה.</p>";
- $("billingList").innerHTML=billing.length?billing.map(x=>"<div class='list-item'><b>"+esc(x.period_label)+"</b> · "+money(x.amount_agorot)+" · "+esc(payLabel(x.status))+(safeUrl(x.receipt_url)?"<br><a href='"+esc(x.receipt_url)+"' target='_blank' rel='noopener'>פתיחת קבלה</a>":"")+"</div>").join(""):"<p class='muted'>עדיין אין רשומות חיוב באזור האישי.</p>";
+ $("billingList").innerHTML=(teamPayments.length||billing.length)?teamPayments.map(x=>"<div class='list-item'><b>נבחרת · "+esc(x.season_label||"")+"</b><br><span>"+money(x.amount_agorot)+" · "+esc(payState(x.payment_status))+"</span><br><span class='muted'>סטטוס בקשה: "+esc(reqLabel(x.request_status))+(x.billing_end_date?" · עד "+esc(fmt(x.billing_end_date)):"")+"</span></div>").join("")+billing.map(x=>"<div class='list-item'><b>"+esc(x.period_label)+"</b> · "+money(x.amount_agorot)+" · "+esc(payLabel(x.status))+(safeUrl(x.receipt_url)?"<br><a href='"+esc(x.receipt_url)+"' target='_blank' rel='noopener'>פתיחת קבלה</a>":"")+"</div>").join(""):"<p class='muted'>עדיין אין נתוני תשלום להצגה.</p>";
  $("resourceList").innerHTML=resources.length?resources.map(x=>"<div class='list-item'><b>"+esc(x.title_he)+"</b>"+(x.description_he?"<br><span class='muted'>"+esc(x.description_he)+"</span>":"")+(safeUrl(x.resource_url)?"<br><a href='"+esc(x.resource_url)+"' target='_blank' rel='noopener'>פתיחת חומר</a>":"")+"</div>").join(""):"<p class='muted'>חומרי הדרגה יופיעו כאן כאשר יפורסמו.</p>";
  const regMap=new Map(regs.map(x=>[x.event_id,x.status]));$("eventList").innerHTML=events.length?events.map(x=>"<div class='list-item'><b>"+esc(x.title_he)+"</b> · "+esc(new Date(x.starts_at).toLocaleString("he-IL"))+(x.branch?" · "+esc(x.branch):"")+(x.description_he?"<br><span class='muted'>"+esc(x.description_he)+"</span>":"")+(regMap.has(x.id)?"<br><span class='muted'>סטטוס הרשמה: "+esc(regMap.get(x.id))+"</span>":"")+"</div>").join(""):"<p class='muted'>אין אירועים קרובים להצגה.</p>";
 }
