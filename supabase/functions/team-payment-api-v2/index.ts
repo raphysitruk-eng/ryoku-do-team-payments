@@ -495,8 +495,9 @@ Deno.serve(async (req:Request)=>{
         const {data:c}=await s.from("children").select("id,parent_id,first_name,last_name,branch,group_name,active").eq("id",input.child_id).maybeSingle();
         if(!c||!c.active) return out({ok:false,code:"INVALID_CHILD"},400);
         child=c;
-        const {data:p}=await s.from("profiles").select("id,full_name,phone,email").eq("id",c.parent_id).maybeSingle();
+        const {data:p}=await s.from("profiles").select("id,full_name,phone,email,approval_status").eq("id",c.parent_id).maybeSingle();
         parentProfile=p||null;
+        if(parentProfile?.approval_status==="rejected") return out({ok:false,code:"PARENT_BLOCKED"},409);
       }
       const studentName=String(input.student_name||(child?(child.first_name+" "+child.last_name):"")).trim();
       const parentName=String(input.parent_name||parentProfile?.full_name||"").trim();
