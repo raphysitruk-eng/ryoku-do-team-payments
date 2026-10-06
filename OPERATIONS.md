@@ -68,6 +68,7 @@ Source of truth:
 - Runtime configuration that must be re-established externally:
   - Supabase project secrets;
   - Invoice4U ProductGuid page and IPN URL;
+  - Invoice4U external thank-you URL: `https://raphysitruk-eng.github.io/ryoku-do-team-payments/thank-you.html`;
   - Supabase Auth settings;
   - GitHub Pages configuration.
 
