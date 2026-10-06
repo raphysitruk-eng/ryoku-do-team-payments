@@ -26,6 +26,8 @@ jobs:
           test -s admin.html
           test -s parent.html
           test -s terms.html
+          test -s terms-team-2026-10-v2.html
+          echo '864c441c774dcde8730de9d356e6c5cafb45867041ccd177acdd9893d7276033  terms-team-2026-10-v2.html' | sha256sum -c -
           test -s thank-you.html
           test -s theme.css
           test -s admin.js
@@ -54,6 +56,11 @@ jobs:
           grep -q 'public_portal_setup' supabase/functions/team-payment-api-v2/index.ts
           grep -q 'parent_portal_payments' supabase/functions/team-payment-api-v2/index.ts
           grep -q 'admin_parent_password_reset' supabase/functions/team-payment-api-v2/index.ts
+          grep -q 'FORM_ALREADY_COMPLETED' supabase/functions/team-payment-api-v2/index.ts
+          grep -q 'PORTAL_ACCOUNT_BLOCKED' supabase/functions/team-payment-api-v2/index.ts
+          grep -q 'luhnCandidate' supabase/functions/team-payment-invoice4u-ipn/index.ts
+          grep -q 'luhnCandidate' supabase/functions/team-payment-provider-hook/index.ts
+          grep -q 'REQUEST_ALREADY_CANCELLED' supabase/functions/team-payment-provider-hook/index.ts
           grep -q 'portal_setup_required' parent.js
           grep -q 'parent_portal_payments' portal.js
           grep -q 'team_payment_run_maintenance' supabase/migrations/20261005183549_team_payment_monitoring_and_retention.sql
@@ -72,6 +79,8 @@ jobs:
           ! grep -q "script-src 'self' 'unsafe-inline'" parent.html
           ! grep -q "script-src 'self' 'unsafe-inline'" recover.html
           ! grep -q "script-src 'self' 'unsafe-inline'" portal.html
+          ! grep -q "script-src 'self' 'unsafe-inline'" terms.html
+          ! grep -q "script-src 'self' 'unsafe-inline'" thank-you.html
           grep -q 'src="admin.js' admin.html
           grep -q 'src="parent.js' parent.html
           grep -q 'src="recover.js' recover.html
