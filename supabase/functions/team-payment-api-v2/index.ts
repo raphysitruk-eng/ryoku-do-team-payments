@@ -507,6 +507,11 @@ Deno.serve(async (req:Request)=>{
       const amount=Number(staticCheckout?cfg.monthly_amount_agorot:(input.amount_agorot??cfg.monthly_amount_agorot));
       const checkout=String(staticCheckout?cfg.provider_checkout_url:(input.provider_checkout_url||cfg.provider_checkout_url||DEFAULT_CHECKOUT_URL)).trim();
       if(!studentName||!parentName||normPhone(parentPhone).length<9||!Number.isInteger(amount)||amount<=0||!validHttps(checkout)||(parentEmail&&!validEmail(parentEmail))) return out({ok:false,code:"INVALID_INPUT"},400);
+      let duplicateQuery=s.from("team_payment_requests").select("id,request_status,payment_status").eq("season_label",cfg.season_label).neq("request_status","cancelled").limit(1);
+      duplicateQuery=child?.id?duplicateQuery.eq("child_id",child.id):duplicateQuery.eq("student_name",studentName).eq("parent_phone_normalized",normPhone(parentPhone));
+      const {data:duplicates,error:dupError}=await duplicateQuery;
+      if(dupError) throw dupError;
+      if((duplicates||[]).length) return out({ok:false,code:"DUPLICATE_REQUEST"},409);
       const raw=makeToken(), hash=await digest(raw);
       const termHash=await termsHash(s,cfg.terms_version);
       const row={
