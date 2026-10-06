@@ -1,5 +1,5 @@
 const BASE="https://zwgpvwxdofjidshsiaek.supabase.co",KEY="sb_publishable_ghdkoJZwwRIvKTsRJXr2xA_Jhfi9NS6",API="https://zwgpvwxdofjidshsiaek.supabase.co/functions/v1/team-payment-api-v2";
-const sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:true,storage:window.localStorage,autoRefreshToken:true,detectSessionInUrl:false}});
+const sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:true,storage:window.sessionStorage,autoRefreshToken:true,detectSessionInUrl:false}});
 const $=x=>document.getElementById(x),esc=s=>String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])),fmt=d=>d?new Date(d).toLocaleDateString("he-IL"):"—",money=a=>(Number(a||0)/100).toLocaleString("he-IL")+" ₪";
 let profile=null,children=[],selected=null;
 function authPhone(v){let x=String(v||"").replace(/\D/g,"");if(x.startsWith("972"))x="0"+x.slice(3);return /^0\d{8,9}$/.test(x)?"+972"+x.slice(1):""}function loginEmail(v){const p=authPhone(v),d=p.replace(/\D/g,"");return d?"member-"+d+"@accounts.ryokudoacademy.com":""}
