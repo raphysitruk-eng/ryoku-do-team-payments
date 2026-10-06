@@ -766,6 +766,7 @@ Deno.serve(async (req:Request)=>{
       const {data:r}=await s.from("team_payment_requests").select("*").eq("token_hash",hash).maybeSingle();
       if(!r||normPhone(r.parent_phone)!==p) return out({ok:false,code:"VERIFY_FAILED"},403);
       if(r.request_status==="cancelled"||r.request_status==="completed"||r.request_status==="expired"||new Date(r.expires_at).getTime()<Date.now()) return out({ok:false,code:"LINK_INACTIVE"},410);
+      if(r.form_completed_at) return out({ok:false,code:"FORM_ALREADY_COMPLETED"},409);
 
       const required=[c.student_id_number,c.student_birth_date,c.parent_name,c.parent_id_number,c.parent_relationship,c.parent_phone,c.parent_email,c.signature_name];
       const badHealth=!!c.health_has_issue && ![c.health_notes,c.medications,c.allergies,c.respiratory_notes,c.orthopedic_notes,c.special_instructions].some((v:any)=>String(v||"").trim());
