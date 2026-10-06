@@ -31,6 +31,11 @@ function makeToken() {
   const b=new Uint8Array(32); crypto.getRandomValues(b);
   return Array.from(b,x=>x.toString(16).padStart(2,"0")).join("");
 }
+function makeTempPassword() {
+  const b=new Uint8Array(10); crypto.getRandomValues(b);
+  const hex=Array.from(b,x=>x.toString(16).padStart(2,"0")).join("");
+  return "Ry7-"+hex.slice(0,16);
+}
 function normPhone(v:unknown) {
   let x=String(v||"").replace(/\D/g,"");
   if(x.startsWith("972")) x="0"+x.slice(3);
@@ -393,6 +398,20 @@ Deno.serve(async (req:Request)=>{
       }
       await log(s,null,"admin","student_portal_updated",a.id,{child_id:id});
       return out({ok:true});
+    }
+
+    if(input.action==="admin_parent_password_reset") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const childId=String(input.child_id||"");
+      const {data:child}=await s.from("children").select("id,parent_id").eq("id",childId).maybeSingle();
+      if(!child) return out({ok:false,code:"NOT_FOUND"},404);
+      const {data:profile}=await s.from("profiles").select("id,phone,full_name,role").eq("id",child.parent_id).maybeSingle();
+      if(!profile||profile.role!=="parent") return out({ok:false,code:"INVALID_PARENT"},409);
+      const temp=makeTempPassword();
+      const {error}=await s.auth.admin.updateUserById(profile.id,{password:temp});
+      if(error) throw error;
+      await log(s,null,"admin","parent_password_reset",a.id,{child_id:childId,parent_profile_id:profile.id});
+      return out({ok:true,temp_password:temp,username:profile.phone||"",parent_name:profile.full_name||""});
     }
 
     if(input.action==="admin_attention") {
