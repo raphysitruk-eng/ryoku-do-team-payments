@@ -387,11 +387,11 @@ Deno.serve(async (req:Request)=>{
       if(input.parent && typeof input.parent==="object"){
         const pp:any={updated_at:new Date().toISOString()};
         if("full_name" in input.parent) pp.full_name=String(input.parent.full_name||"").trim();
-        if("email" in input.parent) pp.email=String(input.parent.email||"").trim().toLowerCase();
-        if(input.parent.approval_status==="approved"||input.parent.approval_status==="rejected"){
+        if("email" in input.parent){const pe=String(input.parent.email||"").trim().toLowerCase();if(pe&&!validEmail(pe))return out({ok:false,code:"INVALID_EMAIL"},400);pp.email=pe;}
+        if(["approved","pending","rejected"].includes(input.parent.approval_status)){
           pp.approval_status=input.parent.approval_status;
           pp.approved_at=input.parent.approval_status==="approved"?new Date().toISOString():null;
-          pp.approval_note=input.parent.approval_status==="approved"?"אושר מממשק ניהול אזור אישי":"הגישה נחסמה מממשק ניהול אזור אישי";
+          pp.approval_note=input.parent.approval_status==="approved"?"אושר מממשק ניהול אזור אישי":input.parent.approval_status==="rejected"?"הגישה נחסמה מממשק ניהול אזור אישי":"ממתין לאישור מנהל";
         }
         const {error:pr}=await s.from("profiles").update(pp).eq("id",child.parent_id);
         if(pr) throw pr;
@@ -666,7 +666,7 @@ Deno.serve(async (req:Request)=>{
       const ip=clientIp(req);
       if(!(await allowVerifyAttempt(s,raw,ip))) return out({ok:false,code:"RATE_LIMITED"},429);
       const hash=await digest(raw);
-      const {data:r}=await s.from("team_payment_requests").select("id,student_name,branch,group_name,amount_agorot,billing_start_date,billing_end_date,number_of_cycles,parent_note,season_label,cancellation_notice_days,price_change_notice_days,terms_version,terms_content_hash,parent_name,parent_phone,parent_email,request_status,payment_status,provider_checkout_url,expires_at").eq("token_hash",hash).maybeSingle();
+      const {data:r}=await s.from("team_payment_requests").select("id,student_name,branch,group_name,amount_agorot,billing_start_date,billing_end_date,number_of_cycles,parent_note,season_label,cancellation_notice_days,price_change_notice_days,terms_version,terms_content_hash,parent_name,parent_phone,parent_email,request_status,payment_status,provider_checkout_url,expires_at,child_id,parent_profile_id").eq("token_hash",hash).maybeSingle();
       if(!r||normPhone(r.parent_phone)!==p||["cancelled","expired"].includes(r.request_status)||new Date(r.expires_at).getTime()<Date.now()) return out({ok:false,code:"VERIFY_FAILED"},403);
       const proof=makeToken(),proofHash=await digest(proof),ipHash=ip?await digest("ip:"+ip):null;
       await s.from("team_payment_verification_sessions").delete().eq("request_id",r.id).is("used_at",null).lt("expires_at",new Date().toISOString());
@@ -688,6 +688,7 @@ Deno.serve(async (req:Request)=>{
         ok:true,parent_name:r.parent_name,parent_email:r.parent_email,verification_proof:proof,request,
         status_label:statusLabel(r.request_status),already_completed:done,
         portal_account_exists:!!portalProfile,
+        portal_request_linked:!!(portalProfile && r.parent_profile_id===portalProfile.id && r.child_id),
         portal_login_username:authPhone(r.parent_phone),
         completed_message:r.request_status==="completed"?"ההרשמה והתשלום מסומנים כהושלמו.":"הטופס כבר נשמר וממתין להשלמת התשלום.",
         checkout_url:mayPay?(r.provider_checkout_url||DEFAULT_CHECKOUT_URL):null
@@ -731,6 +732,10 @@ Deno.serve(async (req:Request)=>{
       await s.from("team_payment_verification_sessions").update({used_at:now}).eq("id",verificationId).is("used_at",null);
       await log(s,r.id,"parent",portal.account_created?"portal_account_created":"portal_account_linked",portal.profile_id,{child_id:portal.child_id,source:"portal_setup"});
       const mayPay=r.request_status==="payment_pending" && !["active","finished","cancelled"].includes(r.payment_status);
+      if(mayPay){
+        await s.from("team_payment_requests").update({checkout_started_at:now,updated_at:now}).eq("id",r.id);
+        await log(s,r.id,"parent","checkout_started",null,{provider:"invoice4u",source:"portal_setup"});
+      }
       return out({
         ok:true,
         portal:{account_created:portal.account_created,username:portal.username,login_url:"https://raphysitruk-eng.github.io/ryoku-do-team-payments/portal.html"},
