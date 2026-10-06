@@ -345,13 +345,15 @@ Deno.serve(async (req:Request)=>{
     if(input.action==="admin_student_update") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
       const id=String(input.child_id||""), childPatch:any={}, progressPatch:any={child_id:id};
+      const childIn=(input.child&&typeof input.child==="object")?input.child:{};
+      const progressIn=(input.progress&&typeof input.progress==="object")?input.progress:{};
       const allowedChild=["branch","group_name","current_rank","next_rank","active"];
-      for(const k of allowedChild) if(k in input.child) childPatch[k]=input.child[k];
+      for(const k of allowedChild) if(k in childIn) childPatch[k]=childIn[k];
       childPatch.updated_at=new Date().toISOString();
       const {data:child,error}=await s.from("children").update(childPatch).eq("id",id).select("id,parent_id").maybeSingle();
       if(error||!child) return out({ok:false,code:"NOT_FOUND"},404);
       const allowedProgress=["next_rank_material","personal_plan","monthly_goal","coach_feedback","progress_percent"];
-      for(const k of allowedProgress) if(k in input.progress) progressPatch[k]=k==="progress_percent"?Math.min(100,Math.max(0,Number(input.progress[k]||0))):String(input.progress[k]||"");
+      for(const k of allowedProgress) if(k in progressIn) progressPatch[k]=k==="progress_percent"?Math.min(100,Math.max(0,Number(progressIn[k]||0))):String(progressIn[k]||"");
       progressPatch.updated_at=new Date().toISOString();
       const {error:pe}=await s.from("student_progress").upsert(progressPatch,{onConflict:"child_id"});
       if(pe) throw pe;
@@ -359,7 +361,7 @@ Deno.serve(async (req:Request)=>{
         const pp:any={updated_at:new Date().toISOString()};
         if("full_name" in input.parent) pp.full_name=String(input.parent.full_name||"").trim();
         if("email" in input.parent) pp.email=String(input.parent.email||"").trim().toLowerCase();
-        if(input.parent.approval_status==="approved"||input.parent.approval_status==="blocked"){
+        if(input.parent.approval_status==="approved"||input.parent.approval_status==="rejected"){
           pp.approval_status=input.parent.approval_status;
           pp.approved_at=input.parent.approval_status==="approved"?new Date().toISOString():null;
           pp.approval_note=input.parent.approval_status==="approved"?"אושר מממשק ניהול אזור אישי":"הגישה נחסמה מממשק ניהול אזור אישי";
