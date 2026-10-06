@@ -36,15 +36,26 @@ function phone(v:unknown){
   return x;
 }
 function uuid(v:unknown){return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(v||""))}
+function luhnCandidate(v:string){
+  const digits=String(v||"").replace(/[\s-]/g,"");
+  if(!/^\d{13,19}$/.test(digits)) return false;
+  let sum=0,alt=false;
+  for(let i=digits.length-1;i>=0;i--){
+    let n=Number(digits[i]);
+    if(alt){n*=2;if(n>9)n-=9;}
+    sum+=n;alt=!alt;
+  }
+  return sum%10===0;
+}
 function safePayload(v:any,depth=0):any{
   if(depth>4) return "[TRUNCATED]";
   if(v===null||v===undefined||typeof v==="number"||typeof v==="boolean") return v;
-  if(typeof v==="string") return v.slice(0,1000);
+  if(typeof v==="string") return luhnCandidate(v)?"[REDACTED]":v.slice(0,1000);
   if(Array.isArray(v)) return v.slice(0,30).map(x=>safePayload(x,depth+1));
   if(typeof v==="object"){
     const out:any={};
     for(const [k,val] of Object.entries(v)){
-      if(/card|pan|cvv|cvc|track|password|secret|token|expiry|credit/i.test(k)) out[k]="[REDACTED]";
+      if(/card|pan|cvv|cvc|track|password|passwd|secret|token|expir|expdate|credit.?card|card.?number|card.?num|security.?code/i.test(k)) out[k]="[REDACTED]";
       else out[k]=safePayload(val,depth+1);
     }
     return out;
