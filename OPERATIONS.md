@@ -88,3 +88,8 @@ These controls live in provider administration and must be enabled there:
 - Supabase **Leaked Password Protection**.
 - GitHub **branch protection/ruleset** on `main` requiring the validation workflow before merge.
 - A real Invoice4U transaction/IPN mapping test before automatic payment-state updates are enabled.
+
+## Live hotfixes
+
+### 2026-10-06 — Payment-pending expiry semantics
+Production maintenance was adjusted so link expiry only changes requests in `draft`, `sent`, `opened`, or `form_completed` to `expired`. Requests already in `payment_pending` are no longer marked expired merely because the private link expired. This prevents a completed registration / possibly-paid Invoice4U checkout from being mislabeled while provider verification is still manual.
