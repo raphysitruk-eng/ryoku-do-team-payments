@@ -63,9 +63,11 @@ async function findParentProfile(s:any, phone:unknown) {
   if(!local||!e164) return null;
   const {data,error}=await s.from("profiles")
     .select("id,phone,email,full_name,role,approval_status,phone_verified_at")
-    .in("phone",[local,e164]).limit(5);
+    .in("phone",[local,e164]).limit(10);
   if(error) throw error;
-  return (data||[]).find((p:any)=>normPhone(p.phone)===local)||null;
+  const matches=(data||[]).filter((p:any)=>normPhone(p.phone)===local);
+  if(matches.length>1) throw new Error("PORTAL_ACCOUNT_CONFLICT");
+  return matches[0]||null;
 }
 async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
   const local=normPhone(c.parent_phone), e164=authPhone(c.parent_phone);
@@ -75,6 +77,7 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
   const now=new Date().toISOString();
 
   if(profile && profile.role!=="parent") throw new Error("PORTAL_ACCOUNT_CONFLICT");
+  if(profile && profile.approval_status==="rejected") throw new Error("PORTAL_ACCOUNT_BLOCKED");
 
   if(!profile) {
     if(!validPortalPassword(password)) throw new Error("PORTAL_PASSWORD_REQUIRED");
@@ -89,6 +92,7 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
       profile=await findParentProfile(s,c.parent_phone);
       if(!profile) throw new Error("PORTAL_ACCOUNT_CREATE_FAILED");
       if(profile.role!=="parent") throw new Error("PORTAL_ACCOUNT_CONFLICT");
+      if(profile.approval_status==="rejected") throw new Error("PORTAL_ACCOUNT_BLOCKED");
     } else {
       accountCreated=true;
       const {data:p,error:pe}=await s.from("profiles")
@@ -724,7 +728,7 @@ Deno.serve(async (req:Request)=>{
       } catch(e) {
         const code=String((e as any)?.message||e);
         if(code==="PORTAL_PASSWORD_REQUIRED") return out({ok:false,code},400);
-        if(["PORTAL_ACCOUNT_CONFLICT","PORTAL_CHILD_CONFLICT"].includes(code)) return out({ok:false,code},409);
+        if(["PORTAL_ACCOUNT_CONFLICT","PORTAL_CHILD_CONFLICT","PORTAL_ACCOUNT_BLOCKED"].includes(code)) return out({ok:false,code},409);
         if(code.startsWith("PORTAL_")) return out({ok:false,code:"PORTAL_ACCOUNT_CREATE_FAILED"},503);
         throw e;
       }
