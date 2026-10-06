@@ -49,7 +49,7 @@ function renderConsentFull(co){
     "</section><section><h4>תיעוד</h4>"+row("גרסת תקנון",co.terms_version)+row("גרסת פרטיות",co.privacy_version)+row("מועד אישור",co.accepted_at)+"</section></div>";
 }
 async function openStudent(id){
-  $("studentMore").innerHTML="<p class='muted'>טוען נתונים…</p>";$("studentSaveMsg").textContent="";$("studentModal").classList.remove("hidden");
+  $("studentMore").innerHTML="<p class='muted'>טוען נתונים…</p>";$("studentSaveMsg").textContent="";$("studentPasswordResult").classList.add("hidden");$("studentPasswordResult").innerHTML="";$("studentModal").classList.remove("hidden");
   const x=await call({action:"admin_student_detail",child_id:id});currentStudentDetail=x;
   const s=x.child||{},p=x.parent||{},g=x.progress||{};
   $("studentModalTitle").textContent="אזור אישי — "+((s.first_name||"")+" "+(s.last_name||"")).trim();
@@ -71,5 +71,6 @@ $("studentSave").onclick=async()=>{
     $("studentSaveMsg").innerHTML="<div class='info'>נשמר בהצלחה.</div>";await loadStudents();await openStudent(currentStudentDetail.child.id);
   }catch(e){$("studentSaveMsg").innerHTML="<div class='err'>לא ניתן לשמור את האזור האישי.</div>"}finally{b.disabled=false}
 };
+$("studentResetPassword").onclick=async()=>{if(!currentStudentDetail?.child?.id)return;if(!confirm("לאפס את סיסמת ההורה? תיווצר סיסמה זמנית חדשה והסיסמה הקודמת תפסיק לעבוד."))return;const b=$("studentResetPassword");b.disabled=true;try{const x=await call({action:"admin_parent_password_reset",child_id:currentStudentDetail.child.id});const box=$("studentPasswordResult");box.classList.remove("hidden");box.innerHTML="<div class='err' style='background:#fff8e5;color:#4d3b12'><b>סיסמה זמנית — מוצגת פעם אחת</b><br>שם משתמש: <span dir='ltr'>"+esc(x.username||"")+"</span><br>סיסמה: <code dir='ltr'>"+esc(x.temp_password||"")+"</code><br><span class='muted small'>יש לשלוח להורה באופן פרטי ולבקש ממנו לשנות את הסיסמה לאחר הכניסה.</span><br><button id='copyTempPassword' class='btn soft' type='button' style='margin-top:8px'>העתקת הסיסמה</button></div>";$("copyTempPassword").onclick=async()=>{await navigator.clipboard.writeText(x.temp_password||"");$("copyTempPassword").textContent="הועתק"};}catch(e){$("studentPasswordResult").classList.remove("hidden");$("studentPasswordResult").innerHTML="<div class='err'>לא ניתן לאפס כרגע את סיסמת ההורה.</div>"}finally{b.disabled=false}};
 $("studentClose").onclick=()=>{$("studentModal").classList.add("hidden");currentStudentDetail=null};
 $("studentsRefresh").onclick=()=>loadStudents().catch(()=>alert("לא ניתן לרענן את רשימת החניכים."));
