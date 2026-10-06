@@ -734,7 +734,7 @@ Deno.serve(async (req:Request)=>{
       if(!/^[a-f0-9]{64}$/i.test(raw)||p.length<9) return out({ok:false,code:"INVALID"},400);
       const hash=await digest(raw);
       const {data:r}=await s.from("team_payment_requests").select("*").eq("token_hash",hash).maybeSingle();
-      if(!r||normPhone(r.parent_phone)!==p||r.request_status==="cancelled") return out({ok:false,code:"VERIFY_FAILED"},403);
+      if(!r||normPhone(r.parent_phone)!==p||["cancelled","expired"].includes(r.request_status)||new Date(r.expires_at).getTime()<Date.now()) return out({ok:false,code:"VERIFY_FAILED"},403);
       const verificationId=await validVerificationSession(s,r.id,proof);
       if(!verificationId) return out({ok:false,code:"VERIFICATION_REQUIRED"},403);
       const {data:consent,error:ce}=await s.from("team_payment_consents").select("*").eq("request_id",r.id).maybeSingle();
