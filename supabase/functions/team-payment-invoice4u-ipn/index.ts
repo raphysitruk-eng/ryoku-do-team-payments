@@ -46,11 +46,22 @@ function flatten(input:any,prefix="",out:Record<string,string>={}){
   }
   return out;
 }
+function luhnCandidate(v:string){
+  const digits=String(v||"").replace(/[\s-]/g,"");
+  if(!/^\d{13,19}$/.test(digits)) return false;
+  let sum=0,alt=false;
+  for(let i=digits.length-1;i>=0;i--){
+    let n=Number(digits[i]);
+    if(alt){n*=2;if(n>9)n-=9;}
+    sum+=n;alt=!alt;
+  }
+  return sum%10===0;
+}
 function sanitize(flat:Record<string,string>){
   const out:Record<string,string>={};
-  const secretish=/(^|\.)(card|pan|cvv|cvc|track2|password|secret|token|expiry|expdate|cardnumber|creditcard)(\.|$)/i;
+  const secretish=/(card|pan|cvv|cvc|track|password|passwd|secret|token|expir|expdate|credit.?card|card.?number|card.?num|security.?code)/i;
   for(const [k,v] of Object.entries(flat)){
-    out[k]=secretish.test(k)?"[REDACTED]":v;
+    out[k]=(secretish.test(k)||luhnCandidate(v))?"[REDACTED]":v;
   }
   return out;
 }
@@ -150,8 +161,8 @@ Deno.serve(async(req)=>{
     const amountRaw=pick(flat,["amount","total","sum","price","totalamount","paymentamount"])||null;
     const match=await matchUnique(s,p,e);
 
-    const eventBasis=JSON.stringify(safe);
-    const eventKey="invoice4u:ipn:"+await sha(tx?("tx:"+tx):eventBasis);
+    const eventFingerprint=await sha(JSON.stringify(flat));
+    const eventKey="invoice4u:ipn:"+await sha(tx?("tx:"+tx):("payload:"+eventFingerprint));
     const {data:old}=await s.from("team_payment_provider_events").select("id,processing_status,request_id").eq("event_key",eventKey).maybeSingle();
     if(old)return reply({ok:true,received:true,duplicate:true});
 
