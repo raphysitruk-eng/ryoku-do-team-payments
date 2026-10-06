@@ -233,6 +233,24 @@ async function admin(req:Request) {
   const {data:p}=await s.from("profiles").select("id,role,approval_status").eq("id",user.id).maybeSingle();
   return p?.role==="admin" && p?.approval_status==="approved" ? user : null;
 }
+async function approvedParent(req:Request) {
+  const raw=(req.headers.get("authorization")||"").replace(/^Bearer\s+/,"");
+  if(!raw) return null;
+  const s=svc();
+  const {data:{user}}=await s.auth.getUser(raw);
+  if(!user) return null;
+  const {data:p}=await s.from("profiles").select("id,role,approval_status").eq("id",user.id).maybeSingle();
+  return p?.role==="parent" && p?.approval_status==="approved" ? user : null;
+}
+async function validVerificationSession(s:any,requestId:string,proof:string) {
+  if(!/^[a-f0-9]{64}$/i.test(proof)) return null;
+  const h=await digest(proof);
+  const {data,error}=await s.from("team_payment_verification_sessions")
+    .select("id").eq("request_id",requestId).eq("proof_hash",h).is("used_at",null)
+    .gt("expires_at",new Date().toISOString()).order("created_at",{ascending:false}).limit(1);
+  if(error) throw error;
+  return data?.[0]?.id||null;
+}
 async function log(s:any,id:string|null,actor_type:string,action:string,actor_id:string|null=null,details:any={}) {
   try { await s.from("team_payment_audit_log").insert({request_id:id,actor_type,actor_id,action,details}); } catch {}
 }
@@ -657,6 +675,50 @@ Deno.serve(async (req:Request)=>{
       });
     }
 
+    if(input.action==="parent_portal_payments") {
+      const u=await approvedParent(req); if(!u) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const childId=String(input.child_id||"");
+      const {data:child}=await s.from("children").select("id,parent_id").eq("id",childId).maybeSingle();
+      if(!child||child.parent_id!==u.id) return out({ok:false,code:"NOT_FOUND"},404);
+      const {data:rows,error}=await s.from("team_payment_requests")
+        .select("id,season_label,amount_agorot,currency,billing_frequency,billing_start_date,billing_end_date,number_of_cycles,request_status,payment_status,provider_last_synced_at,completed_at,created_at")
+        .eq("child_id",childId).order("created_at",{ascending:false}).limit(20);
+      if(error) throw error;
+      return out({ok:true,payments:rows||[]});
+    }
+
+    if(input.action==="public_portal_setup") {
+      const raw=String(input.token||""), p=normPhone(input.parent_phone), proof=String(input.verification_proof||"");
+      if(!/^[a-f0-9]{64}$/i.test(raw)||p.length<9) return out({ok:false,code:"INVALID"},400);
+      const hash=await digest(raw);
+      const {data:r}=await s.from("team_payment_requests").select("*").eq("token_hash",hash).maybeSingle();
+      if(!r||normPhone(r.parent_phone)!==p||r.request_status==="cancelled") return out({ok:false,code:"VERIFY_FAILED"},403);
+      const verificationId=await validVerificationSession(s,r.id,proof);
+      if(!verificationId) return out({ok:false,code:"VERIFICATION_REQUIRED"},403);
+      const {data:consent,error:ce}=await s.from("team_payment_consents").select("*").eq("request_id",r.id).maybeSingle();
+      if(ce) throw ce;
+      if(!consent) return out({ok:false,code:"FORM_REQUIRED"},409);
+      let portal:any;
+      try {
+        portal=await ensurePortalAccount(s,r,consent,input.account_password);
+      } catch(e) {
+        const code=String((e as any)?.message||e);
+        if(code==="PORTAL_PASSWORD_REQUIRED") return out({ok:false,code},400);
+        if(["PORTAL_ACCOUNT_CONFLICT","PORTAL_CHILD_CONFLICT"].includes(code)) return out({ok:false,code},409);
+        if(code.startsWith("PORTAL_")) return out({ok:false,code:"PORTAL_ACCOUNT_CREATE_FAILED"},503);
+        throw e;
+      }
+      const now=new Date().toISOString();
+      await s.from("team_payment_verification_sessions").update({used_at:now}).eq("id",verificationId).is("used_at",null);
+      await log(s,r.id,"parent",portal.account_created?"portal_account_created":"portal_account_linked",portal.profile_id,{child_id:portal.child_id,source:"portal_setup"});
+      const mayPay=r.request_status==="payment_pending" && !["active","finished","cancelled"].includes(r.payment_status);
+      return out({
+        ok:true,
+        portal:{account_created:portal.account_created,username:portal.username,login_url:"https://raphysitruk-eng.github.io/ryoku-do-team-payments/portal.html"},
+        checkout_url:mayPay?(r.provider_checkout_url||DEFAULT_CHECKOUT_URL):null
+      });
+    }
+
     if(input.action==="public_submit") {
       const raw=String(input.token||""), p=normPhone(input.parent_phone), c=input.consent||{}, verificationProof=String(input.verification_proof||"");
       if(!/^[a-f0-9]{64}$/i.test(raw)) return out({ok:false,code:"NOT_FOUND"},404);
@@ -700,16 +762,6 @@ Deno.serve(async (req:Request)=>{
         signature_name:String(c.signature_name).trim(),
         extra_details:(c.extra_details&&typeof c.extra_details==="object")?c.extra_details:{}
       };
-      let portal:any;
-      try {
-        portal=await ensurePortalAccount(s,r,c,input.account_password);
-      } catch(e) {
-        const code=String((e as any)?.message||e);
-        if(code==="PORTAL_PASSWORD_REQUIRED") return out({ok:false,code},400);
-        if(["PORTAL_ACCOUNT_CONFLICT","PORTAL_CHILD_CONFLICT"].includes(code)) return out({ok:false,code},409);
-        if(code.startsWith("PORTAL_")) return out({ok:false,code:"PORTAL_ACCOUNT_CREATE_FAILED"},503);
-        throw e;
-      }
       const ipHash=clientIp(req)?await digest("ip:"+clientIp(req)):null;
       const {data:result,error}=await s.rpc("team_payment_submit_consent",{
         p_request_id:r.id,p_consent:consent,p_ip_hash:ipHash,p_user_agent:String(req.headers.get("user-agent")||"").slice(0,500)||null,
@@ -721,6 +773,22 @@ Deno.serve(async (req:Request)=>{
         if(msg.includes("REQUEST_INACTIVE")) return out({ok:false,code:"LINK_INACTIVE"},410);
         if(msg.includes("CONSENT_REQUIRED")) return out({ok:false,code:"INVALID_CONSENT"},400);
         throw error;
+      }
+      let portal:any=null,portalError="";
+      try {
+        portal=await ensurePortalAccount(s,r,c,input.account_password);
+      } catch(e) {
+        portalError=String((e as any)?.message||e);
+        await log(s,r.id,"parent","portal_setup_required",null,{reason:portalError});
+      }
+      if(!portal){
+        return out({
+          ok:true,
+          portal_setup_required:true,
+          portal_error:portalError.startsWith("PORTAL_")?portalError:"PORTAL_ACCOUNT_CREATE_FAILED",
+          portal_login_username:authPhone(c.parent_phone),
+          checkout_url:null
+        });
       }
       const checkoutStartedAt=new Date().toISOString();
       await s.from("team_payment_requests").update({checkout_started_at:checkoutStartedAt,updated_at:checkoutStartedAt}).eq("id",r.id);
