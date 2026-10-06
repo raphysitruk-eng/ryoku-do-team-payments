@@ -105,13 +105,15 @@ async function matchRequest(s:any,i:any){
   }
   const rid=String(i.provider_recurring_id||i.recurring_id||"").trim();
   if(rid){
-    const {data:r}=await s.from("team_payment_requests").select("*").eq("provider_recurring_id",rid).maybeSingle();
-    if(r)return {r,strategy:"provider_recurring_id"};
+    const {data:rows}=await s.from("team_payment_requests").select("*").eq("provider_recurring_id",rid).limit(2);
+    if((rows||[]).length===1)return {r:rows![0],strategy:"provider_recurring_id"};
+    if((rows||[]).length>1)return {r:null,strategy:"ambiguous_provider_recurring_id"};
   }
   const tx=String(i.provider_transaction_id||i.transaction_id||"").trim();
   if(tx){
-    const {data:r}=await s.from("team_payment_requests").select("*").eq("provider_last_transaction_id",tx).maybeSingle();
-    if(r)return {r,strategy:"provider_transaction_id"};
+    const {data:rows}=await s.from("team_payment_requests").select("*").eq("provider_last_transaction_id",tx).limit(2);
+    if((rows||[]).length===1)return {r:rows![0],strategy:"provider_transaction_id"};
+    if((rows||[]).length>1)return {r:null,strategy:"ambiguous_provider_transaction_id"};
   }
   const p=phone(i.parent_phone),e=String(i.parent_email||"").trim().toLowerCase();
   if(p||e){
@@ -201,6 +203,13 @@ Deno.serve(async(req)=>{
       ev=created;
     }
     if(!r)return json({ok:true,matched:false,event_id:ev.id,processing_status:"unmatched"},202);
+
+    if(r.request_status==="cancelled"&&!r.provider_cancellation_required&&!["cancelled","finished"].includes(paymentStatus)){
+      const now=new Date().toISOString();
+      await s.from("team_payment_provider_events").update({processing_status:"ignored",error_message:"REQUEST_ALREADY_CANCELLED",processed_at:now}).eq("id",ev.id);
+      await audit(s,r.id,"provider_event_ignored_after_cancel",{event_id:ev.id,payment_status:paymentStatus,source});
+      return json({ok:true,matched:true,processed:false,event_id:ev.id,request_id:r.id,reason:"REQUEST_ALREADY_CANCELLED"},202);
+    }
 
     const currency=String(i.currency||"ILS").toUpperCase();
     if(amount!==null && ["active","pending","failed"].includes(paymentStatus) && Number(r.amount_agorot)!==amount){
