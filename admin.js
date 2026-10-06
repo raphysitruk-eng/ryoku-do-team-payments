@@ -54,7 +54,7 @@ async function openStudent(id){
   const s=x.child||{},p=x.parent||{},g=x.progress||{};
   $("studentModalTitle").textContent="אזור אישי — "+((s.first_name||"")+" "+(s.last_name||"")).trim();
   $("studentAccountMeta").textContent=[p.full_name,p.phone,p.email].filter(Boolean).join(" · ");
-  $("sBranch").value=s.branch||"";$("sGroup").value=s.group_name||"";$("sCurrentRank").value=s.current_rank||"";$("sNextRank").value=s.next_rank||"";$("sActive").checked=!!s.active;
+  $("sBranch").value=s.branch||"";$("sGroup").value=s.group_name||"";$("sCurrentRank").value=s.current_rank||"";$("sNextRank").value=s.next_rank||"";$("sJoinedOn").value=s.joined_on||"";$("sActive").checked=!!s.active;
   $("sProgress").value=Number(g.progress_percent||0);$("sMonthlyGoal").value=g.monthly_goal||"";$("sCoachFeedback").value=g.coach_feedback||"";$("sPersonalPlan").value=g.personal_plan||"";$("sNextRankMaterial").value=g.next_rank_material||"";
   $("sParentName").value=p.full_name||"";$("sParentEmail").value=p.email||"";$("sParentStatus").value=p.approval_status||"pending";
   const co=(x.consents||[])[0]||null,att=x.attendance||[],ach=x.achievements||[],bill=x.billing||[],req=x.requests||[];
@@ -67,7 +67,7 @@ async function openStudent(id){
 $("studentSave").onclick=async()=>{
   if(!currentStudentDetail?.child?.id)return;const b=$("studentSave");b.disabled=true;$("studentSaveMsg").textContent="שומר…";
   try{
-    await call({action:"admin_student_update",child_id:currentStudentDetail.child.id,child:{branch:$("sBranch").value.trim(),group_name:$("sGroup").value.trim(),current_rank:$("sCurrentRank").value.trim(),next_rank:$("sNextRank").value.trim(),active:$("sActive").checked},progress:{progress_percent:Number($("sProgress").value||0),monthly_goal:$("sMonthlyGoal").value.trim(),coach_feedback:$("sCoachFeedback").value.trim(),personal_plan:$("sPersonalPlan").value.trim(),next_rank_material:$("sNextRankMaterial").value.trim()},parent:{full_name:$("sParentName").value.trim(),email:$("sParentEmail").value.trim(),approval_status:$("sParentStatus").value}});
+    await call({action:"admin_student_update",child_id:currentStudentDetail.child.id,child:{branch:$("sBranch").value.trim(),group_name:$("sGroup").value.trim(),current_rank:$("sCurrentRank").value.trim(),next_rank:$("sNextRank").value.trim(),joined_on:$("sJoinedOn").value||null,active:$("sActive").checked},progress:{progress_percent:Number($("sProgress").value||0),monthly_goal:$("sMonthlyGoal").value.trim(),coach_feedback:$("sCoachFeedback").value.trim(),personal_plan:$("sPersonalPlan").value.trim(),next_rank_material:$("sNextRankMaterial").value.trim()},parent:{full_name:$("sParentName").value.trim(),email:$("sParentEmail").value.trim(),approval_status:$("sParentStatus").value}});
     $("studentSaveMsg").innerHTML="<div class='info'>נשמר בהצלחה.</div>";await loadStudents();await openStudent(currentStudentDetail.child.id);
   }catch(e){$("studentSaveMsg").innerHTML="<div class='err'>לא ניתן לשמור את האזור האישי.</div>"}finally{b.disabled=false}
 };
