@@ -36,6 +36,129 @@ function normPhone(v:unknown) {
   if(x.startsWith("972")) x="0"+x.slice(3);
   return x;
 }
+function authPhone(v:unknown) {
+  const p=normPhone(v);
+  if(!/^0\d{8,9}$/.test(p)) return "";
+  return "+972"+p.slice(1);
+}
+function validPortalPassword(v:unknown) {
+  const s=String(v||"");
+  return s.length>=12 && s.length<=128 && /[A-Za-z]/.test(s) && /\d/.test(s);
+}
+function splitStudentName(v:unknown) {
+  const parts=String(v||"").trim().split(/\s+/).filter(Boolean);
+  return {first_name:parts.shift()||"",last_name:parts.join(" ")};
+}
+async function findParentProfile(s:any, phone:unknown) {
+  const local=normPhone(phone), e164=authPhone(phone);
+  if(!local||!e164) return null;
+  const {data,error}=await s.from("profiles")
+    .select("id,phone,email,full_name,role,approval_status,phone_verified_at")
+    .in("phone",[local,e164]).limit(5);
+  if(error) throw error;
+  return (data||[]).find((p:any)=>normPhone(p.phone)===local)||null;
+}
+async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
+  const local=normPhone(c.parent_phone), e164=authPhone(c.parent_phone);
+  if(!e164) throw new Error("PORTAL_PHONE_INVALID");
+  let profile=await findParentProfile(s,c.parent_phone);
+  let accountCreated=false;
+  const now=new Date().toISOString();
+
+  if(profile && profile.role!=="parent") throw new Error("PORTAL_ACCOUNT_CONFLICT");
+
+  if(!profile) {
+    if(!validPortalPassword(password)) throw new Error("PORTAL_PASSWORD_REQUIRED");
+    const {data:created,error:createError}=await s.auth.admin.createUser({
+      phone:e164,
+      password:String(password),
+      phone_confirm:true,
+      user_metadata:{full_name:String(c.parent_name||"").trim(),contact_phone:e164},
+      app_metadata:{role:"parent"}
+    });
+    if(createError||!created?.user) {
+      profile=await findParentProfile(s,c.parent_phone);
+      if(!profile) throw new Error("PORTAL_ACCOUNT_CREATE_FAILED");
+      if(profile.role!=="parent") throw new Error("PORTAL_ACCOUNT_CONFLICT");
+    } else {
+      accountCreated=true;
+      const {data:p,error:pe}=await s.from("profiles")
+        .update({
+          phone:e164,
+          email:String(c.parent_email||"").trim().toLowerCase(),
+          full_name:String(c.parent_name||"").trim(),
+          role:"parent",
+          approval_status:"approved",
+          approval_note:"אושר אוטומטית לאחר אימות טלפון בטופס הנבחרת",
+          approved_at:now,
+          phone_verified_at:now,
+          updated_at:now
+        })
+        .eq("id",created.user.id)
+        .select("id,phone,email,full_name,role,approval_status,phone_verified_at")
+        .single();
+      if(pe||!p) throw pe||new Error("PORTAL_PROFILE_CREATE_FAILED");
+      profile=p;
+    }
+  }
+
+  if(!accountCreated) {
+    const {data:p,error:pe}=await s.from("profiles")
+      .update({
+        email:String(c.parent_email||"").trim().toLowerCase(),
+        full_name:String(c.parent_name||"").trim(),
+        approval_status:"approved",
+        approval_note:"אושר אוטומטית לאחר אימות טלפון בטופס הנבחרת",
+        approved_at:now,
+        phone_verified_at:profile.phone_verified_at||now,
+        updated_at:now
+      })
+      .eq("id",profile.id)
+      .select("id,phone,email,full_name,role,approval_status,phone_verified_at")
+      .single();
+    if(pe||!p) throw pe||new Error("PORTAL_PROFILE_UPDATE_FAILED");
+    profile=p;
+  }
+
+  let childId=r.child_id||null;
+  if(childId) {
+    const {data:linked}=await s.from("children").select("id,parent_id").eq("id",childId).maybeSingle();
+    if(!linked||linked.parent_id!==profile.id) throw new Error("PORTAL_CHILD_CONFLICT");
+  } else {
+    const nm=splitStudentName(r.student_name);
+    const {data:existing,error:ce}=await s.from("children")
+      .select("id").eq("parent_id",profile.id).eq("first_name",nm.first_name).eq("last_name",nm.last_name)
+      .order("created_at",{ascending:true}).limit(1);
+    if(ce) throw ce;
+    childId=existing?.[0]?.id||null;
+    if(!childId) {
+      const {data:newChild,error:ci}=await s.from("children").insert({
+        parent_id:profile.id,
+        first_name:nm.first_name,
+        last_name:nm.last_name,
+        branch:String(r.branch||""),
+        group_name:String(r.group_name||""),
+        joined_on:new Date().toISOString().slice(0,10),
+        active:true
+      }).select("id").single();
+      if(ci||!newChild) throw ci||new Error("PORTAL_CHILD_CREATE_FAILED");
+      childId=newChild.id;
+      await s.from("student_progress").upsert({child_id:childId},{onConflict:"child_id",ignoreDuplicates:true});
+    }
+  }
+
+  const {error:linkError}=await s.from("team_payment_requests").update({
+    parent_profile_id:profile.id,
+    child_id:childId,
+    parent_name:String(c.parent_name||"").trim(),
+    parent_email:String(c.parent_email||"").trim().toLowerCase(),
+    parent_email_normalized:String(c.parent_email||"").trim().toLowerCase(),
+    updated_at:now
+  }).eq("id",r.id);
+  if(linkError) throw linkError;
+
+  return {profile_id:profile.id,child_id:childId,account_created:accountCreated,username:e164};
+}
 function validHttps(v:unknown) {
   const s=String(v||"").trim();
   if(!s) return true;
@@ -174,6 +297,78 @@ Deno.serve(async (req:Request)=>{
       if(parentIds.length){const {data:p}=await s.from("profiles").select("id,full_name,phone,email").in("id",parentIds);profiles=p||[];}
       const pm=new Map(profiles.map((p:any)=>[p.id,p]));
       return out({ok:true,people:(children||[]).map((c:any)=>({child_id:c.id,student_name:(c.first_name+" "+c.last_name).trim(),branch:c.branch,group_name:c.group_name,parent_profile_id:c.parent_id,parent:pm.get(c.parent_id)||null}))});
+    }
+
+    if(input.action==="admin_students") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const {data:children,error}=await s.from("children")
+        .select("id,parent_id,first_name,last_name,branch,group_name,current_rank,next_rank,joined_on,active,created_at,updated_at")
+        .order("active",{ascending:false}).order("first_name",{ascending:true}).limit(1000);
+      if(error) throw error;
+      const parentIds=[...new Set((children||[]).map((x:any)=>x.parent_id).filter(Boolean))];
+      const childIds=(children||[]).map((x:any)=>x.id);
+      let profiles:any[]=[],progress:any[]=[],requests:any[]=[];
+      if(parentIds.length){const {data}=await s.from("profiles").select("id,full_name,phone,email,role,approval_status,approved_at,phone_verified_at").in("id",parentIds);profiles=data||[];}
+      if(childIds.length){
+        const [{data:p},{data:rqs}]=await Promise.all([
+          s.from("student_progress").select("child_id,next_rank_material,personal_plan,monthly_goal,coach_feedback,progress_percent,updated_at").in("child_id",childIds),
+          s.from("team_payment_requests").select("id,child_id,request_status,payment_status,amount_agorot,created_at").in("child_id",childIds).order("created_at",{ascending:false})
+        ]);
+        progress=p||[];requests=rqs||[];
+      }
+      const pm=new Map(profiles.map((x:any)=>[x.id,x])),gm=new Map(progress.map((x:any)=>[x.child_id,x]));
+      const latest=new Map<string,any>(); for(const x of requests){if(x.child_id&&!latest.has(x.child_id))latest.set(x.child_id,x);}
+      return out({ok:true,students:(children||[]).map((x:any)=>({
+        ...x,parent:pm.get(x.parent_id)||null,progress:gm.get(x.id)||null,payment:latest.get(x.id)||null
+      }))});
+    }
+
+    if(input.action==="admin_student_detail") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const id=String(input.child_id||"");
+      const {data:child,error}=await s.from("children").select("*").eq("id",id).maybeSingle();
+      if(error||!child) return out({ok:false,code:"NOT_FOUND"},404);
+      const [{data:parent},{data:progress},{data:attendance},{data:achievements},{data:billing},{data:requests}]=await Promise.all([
+        s.from("profiles").select("id,full_name,phone,email,role,approval_status,approval_note,approved_at,phone_verified_at,created_at,updated_at").eq("id",child.parent_id).maybeSingle(),
+        s.from("student_progress").select("*").eq("child_id",id).maybeSingle(),
+        s.from("attendance").select("id,training_date,status,note").eq("child_id",id).order("training_date",{ascending:false}).limit(50),
+        s.from("achievements").select("id,title,achieved_on,certificate_url,note").eq("child_id",id).order("achieved_on",{ascending:false}).limit(50),
+        s.from("billing_records").select("id,period_label,status,amount_agorot,receipt_url,due_on,paid_at,created_at").eq("child_id",id).order("created_at",{ascending:false}).limit(50),
+        s.from("team_payment_requests").select("id,student_name,request_status,payment_status,amount_agorot,form_completed_at,completed_at,created_at").eq("child_id",id).order("created_at",{ascending:false}).limit(20)
+      ]);
+      const requestIds=(requests||[]).map((x:any)=>x.id);
+      let consents:any[]=[];
+      if(requestIds.length){const {data}=await s.from("team_payment_consents").select("*").in("request_id",requestIds).order("created_at",{ascending:false});consents=data||[];}
+      return out({ok:true,child,parent:parent||null,progress:progress||null,attendance:attendance||[],achievements:achievements||[],billing:billing||[],requests:requests||[],consents});
+    }
+
+    if(input.action==="admin_student_update") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const id=String(input.child_id||""), childPatch:any={}, progressPatch:any={child_id:id};
+      const allowedChild=["branch","group_name","current_rank","next_rank","active"];
+      for(const k of allowedChild) if(k in input.child) childPatch[k]=input.child[k];
+      childPatch.updated_at=new Date().toISOString();
+      const {data:child,error}=await s.from("children").update(childPatch).eq("id",id).select("id,parent_id").maybeSingle();
+      if(error||!child) return out({ok:false,code:"NOT_FOUND"},404);
+      const allowedProgress=["next_rank_material","personal_plan","monthly_goal","coach_feedback","progress_percent"];
+      for(const k of allowedProgress) if(k in input.progress) progressPatch[k]=k==="progress_percent"?Math.min(100,Math.max(0,Number(input.progress[k]||0))):String(input.progress[k]||"");
+      progressPatch.updated_at=new Date().toISOString();
+      const {error:pe}=await s.from("student_progress").upsert(progressPatch,{onConflict:"child_id"});
+      if(pe) throw pe;
+      if(input.parent && typeof input.parent==="object"){
+        const pp:any={updated_at:new Date().toISOString()};
+        if("full_name" in input.parent) pp.full_name=String(input.parent.full_name||"").trim();
+        if("email" in input.parent) pp.email=String(input.parent.email||"").trim().toLowerCase();
+        if(input.parent.approval_status==="approved"||input.parent.approval_status==="blocked"){
+          pp.approval_status=input.parent.approval_status;
+          pp.approved_at=input.parent.approval_status==="approved"?new Date().toISOString():null;
+          pp.approval_note=input.parent.approval_status==="approved"?"אושר מממשק ניהול אזור אישי":"הגישה נחסמה מממשק ניהול אזור אישי";
+        }
+        const {error:pr}=await s.from("profiles").update(pp).eq("id",child.parent_id);
+        if(pr) throw pr;
+      }
+      await log(s,null,"admin","student_portal_updated",a.id,{child_id:id});
+      return out({ok:true});
     }
 
     if(input.action==="admin_attention") {
@@ -445,9 +640,12 @@ Deno.serve(async (req:Request)=>{
       };
       const done=["payment_pending","completed"].includes(r.request_status);
       const mayPay=r.request_status==="payment_pending" && !["active","finished","cancelled"].includes(r.payment_status);
+      const portalProfile=await findParentProfile(s,r.parent_phone);
       return out({
         ok:true,parent_name:r.parent_name,parent_email:r.parent_email,verification_proof:proof,request,
         status_label:statusLabel(r.request_status),already_completed:done,
+        portal_account_exists:!!portalProfile,
+        portal_login_username:authPhone(r.parent_phone),
         completed_message:r.request_status==="completed"?"ההרשמה והתשלום מסומנים כהושלמו.":"הטופס כבר נשמר וממתין להשלמת התשלום.",
         checkout_url:mayPay?(r.provider_checkout_url||DEFAULT_CHECKOUT_URL):null
       });
@@ -496,6 +694,16 @@ Deno.serve(async (req:Request)=>{
         signature_name:String(c.signature_name).trim(),
         extra_details:(c.extra_details&&typeof c.extra_details==="object")?c.extra_details:{}
       };
+      let portal:any;
+      try {
+        portal=await ensurePortalAccount(s,r,c,input.account_password);
+      } catch(e) {
+        const code=String((e as any)?.message||e);
+        if(code==="PORTAL_PASSWORD_REQUIRED") return out({ok:false,code},400);
+        if(["PORTAL_ACCOUNT_CONFLICT","PORTAL_CHILD_CONFLICT"].includes(code)) return out({ok:false,code},409);
+        if(code.startsWith("PORTAL_")) return out({ok:false,code:"PORTAL_ACCOUNT_CREATE_FAILED"},503);
+        throw e;
+      }
       const ipHash=clientIp(req)?await digest("ip:"+clientIp(req)):null;
       const {data:result,error}=await s.rpc("team_payment_submit_consent",{
         p_request_id:r.id,p_consent:consent,p_ip_hash:ipHash,p_user_agent:String(req.headers.get("user-agent")||"").slice(0,500)||null,
@@ -511,7 +719,12 @@ Deno.serve(async (req:Request)=>{
       const checkoutStartedAt=new Date().toISOString();
       await s.from("team_payment_requests").update({checkout_started_at:checkoutStartedAt,updated_at:checkoutStartedAt}).eq("id",r.id);
       await log(s,r.id,"parent","checkout_started",null,{provider:"invoice4u"});
-      return out({ok:true,checkout_url:result?.checkout_url||r.provider_checkout_url||DEFAULT_CHECKOUT_URL});
+      await log(s,r.id,"parent",portal.account_created?"portal_account_created":"portal_account_linked",portal.profile_id,{child_id:portal.child_id});
+      return out({
+        ok:true,
+        checkout_url:result?.checkout_url||r.provider_checkout_url||DEFAULT_CHECKOUT_URL,
+        portal:{account_created:portal.account_created,username:portal.username,login_url:"https://raphysitruk-eng.github.io/ryoku-do-team-payments/portal.html"}
+      });
     }
 
     return out({ok:false,code:"NOT_FOUND"},404);
