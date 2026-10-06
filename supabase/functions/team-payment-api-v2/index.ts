@@ -41,6 +41,10 @@ function authPhone(v:unknown) {
   if(!/^0\d{8,9}$/.test(p)) return "";
   return "+972"+p.slice(1);
 }
+function portalLoginEmail(v:unknown) {
+  const e164=authPhone(v), digits=e164.replace(/\D/g,"");
+  return digits?"member-"+digits+"@accounts.ryokudoacademy.com":"";
+}
 function validPortalPassword(v:unknown) {
   const s=String(v||"");
   return s.length>=12 && s.length<=128 && /[A-Za-z]/.test(s) && /\d/.test(s);
@@ -70,9 +74,9 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
   if(!profile) {
     if(!validPortalPassword(password)) throw new Error("PORTAL_PASSWORD_REQUIRED");
     const {data:created,error:createError}=await s.auth.admin.createUser({
-      phone:e164,
+      email:portalLoginEmail(e164),
       password:String(password),
-      phone_confirm:true,
+      email_confirm:true,
       user_metadata:{full_name:String(c.parent_name||"").trim(),contact_phone:e164},
       app_metadata:{role:"parent"}
     });
