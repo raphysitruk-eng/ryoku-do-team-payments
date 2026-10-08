@@ -41,7 +41,7 @@ jobs:
           test -s supabase/migrations/20261005183855_team_payment_october_production_baseline.sql
           grep -q 'team-payment-api-v2' admin.js
           grep -q 'team-payment-api-v2' parent.js
-          grep -q 'כתובת IPN בסיסית' admin.html
+          grep -q 'id="providerUrl" type="password"' admin.html
           grep -q 'termsSummary' parent.html
           test -s OPERATIONS.md
           test -s portal.html
