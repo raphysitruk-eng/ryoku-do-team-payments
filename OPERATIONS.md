@@ -93,3 +93,13 @@ These controls live in provider administration and must be enabled there:
 
 ### 2026-10-06 — Payment-pending expiry semantics
 Production maintenance was adjusted so link expiry only changes requests in `draft`, `sent`, `opened`, or `form_completed` to `expired`. Requests already in `payment_pending` are no longer marked expired merely because the private link expired. This prevents a completed registration / possibly-paid Invoice4U checkout from being mislabeled while provider verification is still manual.
+
+### 2026-10-08 — First live sales-page IPN matching
+
+- A payer may enter a different email on the Invoice4U sales page. Fallback association requires exactly one eligible request for the phone, a payment-pending checkout in the last 30 minutes, identical monthly amount and cycle count, and no eligible request for the payment email. Shared-phone and conflicting-email cases remain unlinked.
+- A linked capture remains unverified and does not activate billing or mark a charge successful. The observed sales-page callback lacks a standing-order ID and explicit charge-success result. Store its clearing confirmation as informational metadata, never as a recurring-order ID or proof of a debit.
+- Opaque `jsonParamsBase64`, payer identifiers and card metadata are redacted before storage. Plan amount, cycle count and the first-charge amount field are captured separately from a confirmed transaction amount.
+- Existing capture association repairs are audited; financial request state is unchanged.
+
+Before manually confirming a standing order, verify its status, monthly amount, cycle count, first-charge amount and charge dates in Invoice4U. Then update the request through Admin → Payment status. A sales-page return or an unsigned IPN alone is insufficient. Do not send the parent through a second payment setup to resolve a status-only mismatch.
+

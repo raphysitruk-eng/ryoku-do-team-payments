@@ -59,7 +59,7 @@ function luhnCandidate(v:string){
 }
 function sanitize(flat:Record<string,string>){
   const out:Record<string,string>={};
-  const secretish=/(card|pan|cvv|cvc|track|password|passwd|secret|token|expir|expdate|credit.?card|card.?number|card.?num|security.?code)/i;
+  const secretish=/(card|pan|cvv|cvc|track|password|passwd|secret|token|expir|expdate|credit.?card|card.?number|card.?num|security.?code|api.?key|authorization|jsonparamsbase64|owner.?id|unique.?id)/i;
   for(const [k,v] of Object.entries(flat)){
     out[k]=(secretish.test(k)||luhnCandidate(v))?"[REDACTED]":v;
   }
@@ -121,22 +121,54 @@ async function allowCaptureAttempt(s:any,req:Request){
   else await s.from("team_payment_rate_limits").insert({key_hash:key,window_start:windowStart,attempts:1});
   return true;
 }
-async function matchUnique(s:any,p:string,e:string){
+function amountAgorot(v:unknown){
+  const raw=String(v??"").trim();
+  if(!/^\d{1,7}(?:[.,]\d{1,2})?$/.test(raw))return null;
+  const value=Math.round(Number(raw.replace(",","."))*100);
+  return Number.isSafeInteger(value)?value:null;
+}
+function orderDuration(v:unknown){
+  const raw=String(v??"").trim();
+  return /^\d{1,3}$/.test(raw)&&Number(raw)>0?Number(raw):null;
+}
+async function matchUnique(s:any,p:string,e:string,orderAmount:number|null=null,duration:number|null=null){
   if(!p&&!e)return {request:null,strategy:"unmatched"};
-  let q=s.from("team_payment_requests")
-    .select("id,parent_phone,parent_email,request_status,payment_status,amount_agorot,checkout_started_at")
+  const candidates=()=>s.from("team_payment_requests")
+    .select("id,parent_phone,parent_email,request_status,payment_status,amount_agorot,number_of_cycles,checkout_started_at")
     .in("request_status",["sent","opened","form_completed","payment_pending","completed"])
-    .order("checkout_started_at",{ascending:false,nullsFirst:false}).limit(5);
+    .order("checkout_started_at",{ascending:false,nullsFirst:false});
+  let q=candidates().limit(6);
   if(p&&e) q=q.eq("parent_phone_normalized",p).eq("parent_email_normalized",e);
   else if(p) q=q.eq("parent_phone_normalized",p);
   else q=q.eq("parent_email_normalized",e);
-  const {data:matches}=await q;
+  const {data:matches,error}=await q;
+  if(error)throw error;
   if((matches||[]).length===1)return {request:matches![0],strategy:p&&e?"phone_email_unique":p?"phone_unique":"email_unique"};
   if((matches||[]).length>1){
+    if(matches!.length>=6)return {request:null,strategy:"ambiguous"};
     const cutoff=Date.now()-30*60*1000;
-    const recent=(matches||[]).filter((r:any)=>r.request_status==="payment_pending"&&r.checkout_started_at&&new Date(r.checkout_started_at).getTime()>=cutoff&&!["active","finished","cancelled"].includes(r.payment_status));
+    const recent=(matches||[]).filter((r:any)=>r.request_status==="payment_pending"&&r.checkout_started_at&&new Date(r.checkout_started_at).getTime()>=cutoff&&new Date(r.checkout_started_at).getTime()<=Date.now()&&!["active","finished","cancelled"].includes(r.payment_status));
     if(recent.length===1)return {request:recent[0],strategy:"recent_checkout_unique"};
     return {request:null,strategy:"ambiguous"};
+  }
+  // A payer may enter a different email on the hosted sales page. Only link this
+  // unsigned capture when the phone identifies one pending, recent checkout and
+  // its standing-order amount and cycle count agree. This never activates billing.
+  if(p&&e&&orderAmount!==null&&orderAmount>0&&duration!==null){
+    const {data:byPhone,error:phoneError}=await candidates().eq("parent_phone_normalized",p).limit(2);
+    if(phoneError)throw phoneError;
+    if((byPhone||[]).length>1)return {request:null,strategy:"ambiguous"};
+    if((byPhone||[]).length===1){
+      const {data:byEmail,error:emailError}=await candidates().eq("parent_email_normalized",e).limit(1);
+      if(emailError)throw emailError;
+      if((byEmail||[]).length)return {request:null,strategy:"conflicting_email"};
+      const candidate=byPhone![0],started=new Date(candidate.checkout_started_at||"").getTime(),now=Date.now();
+      if(candidate.request_status==="payment_pending"&&!["active","finished","cancelled"].includes(candidate.payment_status)&&
+         Number.isFinite(started)&&started>=now-30*60*1000&&started<=now&&
+         candidate.amount_agorot===orderAmount&&candidate.number_of_cycles===duration){
+        return {request:candidate,strategy:"phone_recent_checkout_email_mismatch"};
+      }
+    }
   }
   return {request:null,strategy:"unmatched"};
 }
@@ -159,7 +191,11 @@ Deno.serve(async(req)=>{
     const tx=pick(flat,["transactionid","transaction_id","dealid","deal_id","clearingid","clearing_id","saleid","sale_id","confirmationnumber","confirmation_number"])||null;
     const recurring=pick(flat,["standingorderid","standing_order_id","recurringid","recurring_id","subscriptionid","subscription_id"])||null;
     const amountRaw=pick(flat,["amount","total","sum","price","totalamount","paymentamount"])||null;
-    const match=await matchUnique(s,p,e);
+    const duration=orderDuration(pick(flat,["standingOrderDuration"]));
+    const orderAmount=duration!==null?amountAgorot(amountRaw):null;
+    const firstChargeAmount=amountAgorot(pick(flat,["standingOrderFirstChargeAmount"]));
+    const clearingConfirmation=pick(flat,["clearingConfirmation"])||null;
+    const match=await matchUnique(s,p,e,orderAmount,duration);
 
     const eventFingerprint=await sha(JSON.stringify(flat));
     const eventKey="invoice4u:ipn:"+await sha(tx?("tx:"+tx):("payload:"+eventFingerprint));
@@ -171,6 +207,10 @@ Deno.serve(async(req)=>{
       parent_phone:p||null,parent_email:e||null,
       provider_transaction_id:tx,provider_recurring_id:recurring,
       amount_raw:amountRaw,request_id:match.request?.id||null,
+      standing_order_amount_agorot:orderAmount,standing_order_duration:duration,
+      standing_order_first_charge_amount_agorot:firstChargeAmount,
+      clearing_confirmation:clearingConfirmation,
+      parent_email_differs:match.strategy==="phone_recent_checkout_email_mismatch",
       match_strategy:match.strategy,
       capture_auth:mode,
       source_ip_hash:clientIp(req)?await sha("ip:"+clientIp(req)):null,
@@ -183,7 +223,7 @@ Deno.serve(async(req)=>{
       parent_phone:p||null,parent_email:e||null,source:"ipn",
       raw_payload:safe,normalized_payload:normalized,
       processing_status:match.request?"received":"unmatched",
-      verification_status:mode==="secret"?"verified":"unverified",payload_schema_version:"invoice4u-ipn-capture-v2",
+      verification_status:mode==="secret"?"verified":"unverified",payload_schema_version:"invoice4u-ipn-capture-v3",
       error_message:"IPN_MAPPING_PENDING"
     });
     if(error)throw error;
@@ -193,3 +233,4 @@ Deno.serve(async(req)=>{
     return reply({ok:false,code:"SERVICE_UNAVAILABLE"},503);
   }
 });
+
