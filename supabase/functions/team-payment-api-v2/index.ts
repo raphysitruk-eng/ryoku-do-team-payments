@@ -184,6 +184,15 @@ function validEmail(v:unknown) {
   const s=String(v||"").trim().toLowerCase();
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s) && s.length<=254;
 }
+function invalidCreateField(studentName:string,parentName:string,parentPhone:string,parentEmail:string,amount:number,checkout:string) {
+  if(studentName.length<2||studentName.length>120) return "student_name";
+  if(parentName.length<2||parentName.length>120) return "parent_name";
+  if(!authPhone(parentPhone)) return "parent_phone";
+  if(parentEmail&&!validEmail(parentEmail)) return "parent_email";
+  if(!Number.isInteger(amount)||amount<=0) return "amount_agorot";
+  if(!validHttps(checkout)) return "provider_checkout_url";
+  return null;
+}
 function validIsraeliId(v:unknown) {
   let s=String(v||"").replace(/\D/g,"");
   if(!/^\d{5,9}$/.test(s)) return false;
@@ -493,7 +502,7 @@ Deno.serve(async (req:Request)=>{
       let child:any=null,parentProfile:any=null;
       if(input.child_id) {
         const {data:c}=await s.from("children").select("id,parent_id,first_name,last_name,branch,group_name,active").eq("id",input.child_id).maybeSingle();
-        if(!c||!c.active) return out({ok:false,code:"INVALID_CHILD"},400);
+        if(!c||!c.active) return out({ok:false,code:"INVALID_CHILD",field:"child_id"},400);
         child=c;
         const {data:p}=await s.from("profiles").select("id,full_name,phone,email,approval_status").eq("id",c.parent_id).maybeSingle();
         parentProfile=p||null;
@@ -501,12 +510,13 @@ Deno.serve(async (req:Request)=>{
       }
       const studentName=String(input.student_name||(child?(child.first_name+" "+child.last_name):"")).trim();
       const parentName=String(input.parent_name||parentProfile?.full_name||"").trim();
-      const parentPhone=String(input.parent_phone||parentProfile?.phone||"").trim();
+      const parentPhone=normPhone(input.parent_phone||parentProfile?.phone||"");
       const parentEmail=String(input.parent_email||parentProfile?.email||"").trim().toLowerCase();
       const staticCheckout=cfg.checkout_mode==="static_product";
       const amount=Number(staticCheckout?cfg.monthly_amount_agorot:(input.amount_agorot??cfg.monthly_amount_agorot));
       const checkout=String(staticCheckout?cfg.provider_checkout_url:(input.provider_checkout_url||cfg.provider_checkout_url||DEFAULT_CHECKOUT_URL)).trim();
-      if(!studentName||!parentName||normPhone(parentPhone).length<9||!Number.isInteger(amount)||amount<=0||!validHttps(checkout)||(parentEmail&&!validEmail(parentEmail))) return out({ok:false,code:"INVALID_INPUT"},400);
+      const invalidField=invalidCreateField(studentName,parentName,parentPhone,parentEmail,amount,checkout);
+      if(invalidField) return out({ok:false,code:"INVALID_INPUT",field:invalidField},400);
       let duplicateQuery=s.from("team_payment_requests").select("id,request_status,payment_status").eq("season_label",cfg.season_label).neq("request_status","cancelled").limit(1);
       duplicateQuery=child?.id?duplicateQuery.eq("child_id",child.id):duplicateQuery.eq("student_name",studentName).eq("parent_phone_normalized",normPhone(parentPhone));
       const {data:duplicates,error:dupError}=await duplicateQuery;
@@ -854,3 +864,4 @@ Deno.serve(async (req:Request)=>{
     return out({ok:false,code:"SERVICE_UNAVAILABLE"},503);
   }
 });
+
