@@ -55,7 +55,7 @@ function safePayload(v:any,depth=0):any{
   if(typeof v==="object"){
     const out:any={};
     for(const [k,val] of Object.entries(v)){
-      if(/card|pan|cvv|cvc|track|password|passwd|secret|token|expir|expdate|credit.?card|card.?number|card.?num|security.?code/i.test(k)) out[k]="[REDACTED]";
+      if(/card|pan|cvv|cvc|track|password|passwd|secret|token|expir|expdate|credit.?card|card.?number|card.?num|security.?code|jsonparamsbase64|owner.?id|unique.?id/i.test(k)) out[k]="[REDACTED]";
       else out[k]=safePayload(val,depth+1);
     }
     return out;
@@ -93,7 +93,7 @@ async function external(s:any,req:Request){
   const raw=String(req.headers.get("x-ryokudo-webhook-key")||"").trim();
   if(raw.length<32) return null;
   const h=await sha(raw);
-  const {data:r}=await s.from("team_payment_provider_secrets").select("id,expires_at").eq("provider","invoice4u").eq("secret_hash",h).eq("active",true).maybeSingle();
+  const {data:r}=await s.from("team_payment_provider_secrets").select("id,expires_at").eq("provider","invoice4u").eq("purpose","bridge").eq("secret_hash",h).eq("active",true).maybeSingle();
   if(!r||(r.expires_at&&new Date(r.expires_at).getTime()<Date.now())) return null;
   await s.from("team_payment_provider_secrets").update({last_used_at:new Date().toISOString()}).eq("id",r.id);
   return r;
@@ -144,19 +144,43 @@ Deno.serve(async(req)=>{
 
     if(i.action==="admin_config"){
       const a=await admin(s,req); if(!a)return json({ok:false,code:"UNAUTHORIZED"},401);
-      const {data:secret}=await s.from("team_payment_provider_secrets").select("id,created_at,last_used_at,expires_at").eq("provider","invoice4u").eq("active",true).order("created_at",{ascending:false}).limit(1).maybeSingle();
-      const {data:events}=await s.from("team_payment_provider_events")
-        .select("id,event_type,payment_status,request_id,match_strategy,provider_transaction_id,provider_recurring_id,amount_agorot,source,processing_status,error_message,received_at,processed_at")
-        .order("received_at",{ascending:false}).limit(30);
-      return json({ok:true,configured:!!secret,callback_url:PROJECT_URL+"/functions/v1/team-payment-provider-hook",ipn_url_base:PROJECT_URL+"/functions/v1/team-payment-invoice4u-ipn",invoice4u_ipn_mode:"capture_only_unsigned",auth_header:"x-ryokudo-webhook-key",secret_meta:secret||null,events:events||[]});
+      const [{data:config,error:ce},{data:events,error:ee}]=await Promise.all([
+        s.rpc("team_payment_invoice4u_callback_config"),
+        s.from("team_payment_provider_events")
+          .select("id,event_type,payment_status,request_id,match_strategy,provider_transaction_id,provider_recurring_id,amount_agorot,source,processing_status,error_message,verification_status,normalized_payload,received_at,processed_at")
+          .order("received_at",{ascending:false}).limit(30)
+      ]);
+      if(ce||ee)throw new Error("CONFIG_LOOKUP_FAILED");
+      return json({ok:true,configured:!!config?.ready,
+        callback_url:PROJECT_URL+"/functions/v1/team-payment-provider-hook",
+        ipn_url_base:PROJECT_URL+"/functions/v1/team-payment-invoice4u-ipn",
+        invoice4u_callback_url:config?.ready?PROJECT_URL+"/functions/v1/team-payment-invoice4u-ipn"+config.callback_path:null,
+        invoice4u_ipn_mode:config?.last_authenticated_callback_at?"authenticated_callbacks_received":"ready_awaiting_provider_configuration",
+        last_authenticated_callback_at:config?.last_authenticated_callback_at||null,
+        auth_header:"x-ryokudo-webhook-key",secret_meta:config?.secret_meta||null,
+        events:(events||[]).map((e:any)=>{const {normalized_payload,...rest}=e;return {...rest,
+          manual_provider_confirmed:normalized_payload?.standing_order_status_confirmed==="active"&&!!normalized_payload?.manual_confirmation_source}})});
+    }
+
+    if(i.action==="admin_link_event"){
+      const a=await admin(s,req); if(!a)return json({ok:false,code:"UNAUTHORIZED"},401);
+      if(!uuid(i.event_id)||!uuid(i.request_id)||i.provider_confirmed!==true)return json({ok:false,code:"PROVIDER_EVIDENCE_REQUIRED"},400);
+      const note=String(i.provider_note||"").trim();
+      if(note.length<8||note.length>500)return json({ok:false,code:"PROVIDER_EVIDENCE_REQUIRED"},400);
+      const {data,error}=await s.rpc("team_payment_link_invoice4u_payer",{p_event_id:i.event_id,p_request_id:i.request_id,p_actor_id:a.id,p_note:note});
+      if(error){
+        const known=["FORM_REQUIRED","CLOSED_STANDING_ORDER","PLAN_MISMATCH","PAYER_CONTACT_REQUIRED","STANDING_ORDER_ID_CONFLICT","EVENT_ALREADY_LINKED","PROVIDER_EVIDENCE_REQUIRED"];
+        return json({ok:false,code:known.find(c=>String(error.message||"").includes(c))||"LINK_FAILED"},409);
+      }
+      return json({ok:true,...data});
     }
 
     if(i.action==="admin_generate_secret"){
       const a=await admin(s,req); if(!a)return json({ok:false,code:"UNAUTHORIZED"},401);
       const raw=token(),h=await sha(raw),grace=new Date(Date.now()+24*3600000).toISOString();
       await s.from("team_payment_provider_secrets").update({expires_at:grace})
-        .eq("provider","invoice4u").eq("active",true).is("expires_at",null);
-      const {error}=await s.from("team_payment_provider_secrets").insert({provider:"invoice4u",secret_hash:h,label:"Invoice4U / Zapier webhook",active:true,created_by:a.id});
+        .eq("provider","invoice4u").eq("purpose","bridge").eq("active",true).is("expires_at",null);
+      const {error}=await s.from("team_payment_provider_secrets").insert({provider:"invoice4u",secret_hash:h,label:"Invoice4U / Zapier webhook",purpose:"bridge",active:true,created_by:a.id});
       if(error)throw error;
       return json({ok:true,secret:raw,callback_url:PROJECT_URL+"/functions/v1/team-payment-provider-hook",ipn_url:PROJECT_URL+"/functions/v1/team-payment-invoice4u-ipn?key="+encodeURIComponent(raw),auth_header:"x-ryokudo-webhook-key",warning:"כתובת ה-IPN והמפתח מוצגים פעם אחת בלבד. מפתח קודם, אם קיים, נשאר תקף עד 24 שעות לצורך מעבר בטוח."});
     }
@@ -225,6 +249,7 @@ Deno.serve(async(req)=>{
     }
 
     const now=new Date().toISOString(),patch:any={payment_status:paymentStatus,provider_last_event_id:eventKey,provider_last_synced_at:now,provider_sync_source:source,updated_at:now};
+    if(["active","finished","cancelled"].includes(paymentStatus))patch.provider_standing_order_status=paymentStatus;
     if(customer)patch.provider_customer_id=customer;
     if(recurring)patch.provider_recurring_id=recurring;
     if(tx)patch.provider_last_transaction_id=tx;
@@ -265,3 +290,4 @@ Deno.serve(async(req)=>{
     return json({ok:false,code:"SERVICE_UNAVAILABLE"},503);
   }
 });
+

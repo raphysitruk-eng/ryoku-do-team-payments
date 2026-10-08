@@ -34,7 +34,7 @@ Supabase currently has no recovery-code feature for TOTP. Keep the TOTP factor/s
 - Submit without proof is rejected.
 - Admin API with AAL1 is rejected; AAL2 is accepted.
 - Invoice4U checkout URL remains on the approved Invoice4U hostname.
-- IPN capture returns 200 for a non-empty payload but does not change payment state until mapping/verification is approved.
+- The public legacy IPN URL captures valid unsigned payloads without changing financial state. Only the stable authenticated path can process mapped setup/monthly outcomes.
 - Two requests for the same parent are never guessed when matching is ambiguous.
 - `team-payment-hourly-maintenance` has a recent successful run.
 - No QA rows remain.
@@ -78,8 +78,7 @@ Recovery order:
 3. Deploy the three active payment Edge Functions from `supabase/functions/`.
 4. Restore required Supabase secrets through the dashboard/secure secret manager — never from Git.
 5. Verify the admin profile/role and Auth configuration.
-6. Configure Invoice4U IPN to:
-   `https://zwgpvwxdofjidshsiaek.supabase.co/functions/v1/team-payment-invoice4u-ipn`
+6. Copy the stable secure callback URL from the MFA-protected Admin integration panel, and configure it for the sales-page IPN and existing mandates' monthly notifications. Restoring a new Vault secret requires updating provider destinations; prefer restoring the original encrypted configuration.
 7. Deploy GitHub Pages.
 8. Run the smoke tests above before reopening invitations.
 
@@ -87,7 +86,7 @@ Recovery order:
 These controls live in provider administration and must be enabled there:
 - Supabase **Leaked Password Protection**.
 - GitHub **branch protection/ruleset** on `main` requiring the validation workflow before merge.
-- A real Invoice4U transaction/IPN mapping test before automatic payment-state updates are enabled.
+- Invoice4U notification destination configuration and verification of the first ordinary authenticated callback. Do not create another mandate or a financial test charge.
 
 ## Live hotfixes
 
@@ -102,4 +101,28 @@ Production maintenance was adjusted so link expiry only changes requests in `dra
 - Existing capture association repairs are audited; financial request state is unchanged.
 
 Before manually confirming a standing order, verify its status, monthly amount, cycle count, first-charge amount and charge dates in Invoice4U. Then update the request through Admin → Payment status. A sales-page return or an unsigned IPN alone is insufficient. Do not send the parent through a second payment setup to resolve a status-only mismatch.
+
+### 2026-10-08 — Authenticated standing-order synchronization
+
+The backend now supports sales-page setup notifications, API setup `Data=<JSON>` notifications, and monthly raw Base64 UTF-8 JSON notifications. Monthly Base64 is decoded **before** form parsing, even when Invoice4U labels the body `application/x-www-form-urlencoded`. Invoice4U's `paymentsNum` monthly field is not used for the number of cycles.
+
+Invoice4U does not sign notifications and drops query strings on monthly callbacks. Admin → Invoice4U integration now exposes a **stable secret path URL**, with its random value encrypted in Supabase Vault and only its hash used for authentication. It is visible/copyable only after an approved administrator authenticates with MFA. Do not put this URL in source control, tickets, parent links, screenshots, public logs, or a URL shortener. The optional Zapier key has a separate purpose; rotating it does not expire the provider callback URL.
+
+Provider configuration still has to be completed in the authenticated Invoice4U account:
+
+1. Copy the secure notification URL from Admin → Invoice4U integration.
+2. Replace the sales-page IPN destination with that URL.
+3. Verify and update the monthly callback destination for **existing** standing orders as well. A sales-page change alone may apply only to future registrations. Invoice4U's API uses `StandingOrderCallBackUrl`; UPay uses `CallBackUrl` for monthly delivery. Preserve the exact path; no query key is required.
+4. Keep the existing amount, dates, card token and cycle count unchanged. Do not create a second order or a test financial charge to verify notification routing.
+5. After an actual provider notification, check the integration panel's last **authenticated** notification time, the mapped child, and its monthly result. A generated URL or a successful login alone does not prove provider configuration or delivery.
+
+The public legacy IPN URL remains capture-only. Neither an unsigned success flag nor a parent return page changes financial status. The existing two manually confirmed mandates have approved payer aliases and their provider schedule, without altering the registered guardian or fabricating a debit. A first authenticated monthly notification can associate their provider standing-order IDs through those aliases. Admin → recent events → Link payer can resolve a different payer or ambiguous family after a provider check; linking an unsigned event alone does not mark it paid.
+
+Authenticated delivery is persisted before mapping. A service-only, invoker RPC locks the event and request, enforces forms/consents and plan matching, and commits request status, ledger result, audit and alerts in one transaction. The unique `(standing_order_id, Israel receipt date)` key prevents repeated delivery being counted twice; a conflicting result requires review. An older received-date result cannot overwrite the latest result. No network call or financial instruction occurs in this transaction. A five-minute local retry job recovers transient processing failures because Invoice4U sends callbacks once and does not retry them.
+
+Mandate state, monthly charge outcome and document outcome are separate. A failed monthly charge leaves the mandate active; a successful charge with document failure remains successful and raises a document alert. Setup confirms a mandate, never an actual debit. Invoice4U reports the normal monthly `sum`, not necessarily an overridden first debit amount, so the UI explicitly labels the plan amount and leaves actual debit amount unknown. Callback receipt date in Israel is used because the monthly payload lacks a transaction ID and charge timestamp.
+
+Cancellation and modification of a real mandate remain provider-admin operations: the public Invoice4U API does not expose mandate history, update or cancellation, and these monthly callbacks do not report cancellation. Confirm external cancellations through the existing admin status workflow. An active callback never clears a pending local cancellation or reopens a provider-confirmed closed mandate.
+
+Verification: `node --test tests/*.test.mjs` covers parsing, credential validation, unsigned forgery, durable queuing and replay. `tests/invoice4u-sync.test.sql` checks financial updates, duplicate/conflicting notifications, document failures, chronology, form guards, amount/currency mismatch, schedule, payer aliases and privileges inside a transaction that is completely rolled back. These tests do not contact Invoice4U or create a financial operation.
 

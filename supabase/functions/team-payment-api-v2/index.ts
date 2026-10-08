@@ -294,7 +294,7 @@ Deno.serve(async (req:Request)=>{
       const from=(page-1)*pageSize,to=from+pageSize-1;
       const q=String(input.search||"").trim().replace(/[%_,()]/g," ").replace(/\s+/g," ").slice(0,80);
       let query=s.from("team_payment_requests")
-        .select("id,student_name,parent_name,parent_phone,parent_email,branch,group_name,amount_agorot,request_status,payment_status,billing_start_date,billing_end_date,number_of_cycles,provider_checkout_url,provider_customer_id,provider_recurring_id,provider_last_transaction_id,provider_last_event_id,provider_last_synced_at,provider_sync_source,child_id,parent_profile_id,cancellation_requested_at,provider_cancellation_required,provider_cancellation_confirmed_at,terms_version,terms_content_hash,parent_note,internal_note,expires_at,sent_at,first_opened_at,form_completed_at,completed_at,cancelled_at,created_at",{count:"exact"})
+        .select("id,student_name,parent_name,parent_phone,parent_email,branch,group_name,amount_agorot,request_status,payment_status,billing_start_date,billing_end_date,number_of_cycles,provider_standing_order_status,provider_charge_start_date,provider_charge_end_date,provider_last_charge_status,provider_last_charge_date,provider_checkout_url,provider_customer_id,provider_recurring_id,provider_last_transaction_id,provider_last_event_id,provider_last_synced_at,provider_sync_source,child_id,parent_profile_id,cancellation_requested_at,provider_cancellation_required,provider_cancellation_confirmed_at,terms_version,terms_content_hash,parent_note,internal_note,expires_at,sent_at,first_opened_at,form_completed_at,completed_at,cancelled_at,created_at",{count:"exact"})
         .order("created_at",{ascending:false}).range(from,to);
       if(q) query=query.or("student_name.ilike.%"+q+"%,parent_name.ilike.%"+q+"%,parent_phone.ilike.%"+q+"%,parent_email.ilike.%"+q+"%");
       const {data,error,count}=await query;
@@ -304,10 +304,10 @@ Deno.serve(async (req:Request)=>{
 
     if(input.action==="admin_summary") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
-      const {data,error}=await s.from("team_payment_requests").select("request_status,payment_status,amount_agorot").limit(5000);
+      const {data,error}=await s.from("team_payment_requests").select("request_status,payment_status,provider_standing_order_status,amount_agorot").limit(5000);
       if(error) throw error;
       const rows=data||[];
-      const active=rows.filter((r:any)=>r.payment_status==="active");
+      const active=rows.filter((r:any)=>r.provider_standing_order_status==="active"||(!r.provider_standing_order_status&&r.payment_status==="active"));
       return out({ok:true,summary:{
         all:rows.length,
         pending:rows.filter((r:any)=>!["completed","cancelled","expired"].includes(r.request_status)).length,
@@ -321,11 +321,13 @@ Deno.serve(async (req:Request)=>{
       const {data:r,error}=await s.from("team_payment_requests").select("*").eq("id",input.id).maybeSingle();
       if(error||!r) return out({ok:false,code:"NOT_FOUND"},404);
       const {data:c}=await s.from("team_payment_consents").select("*").eq("request_id",input.id).maybeSingle();
-      const [{data:logs},{data:events}]=await Promise.all([
+      const [{data:logs,error:ae},{data:events,error:pe},{data:charges,error:che}]=await Promise.all([
         s.from("team_payment_audit_log").select("actor_type,action,details,created_at").eq("request_id",input.id).order("created_at",{ascending:false}).limit(50),
-        s.from("team_payment_provider_events").select("event_type,payment_status,match_strategy,provider_transaction_id,provider_recurring_id,source,processing_status,error_message,verification_status,received_at,processed_at").eq("request_id",input.id).order("received_at",{ascending:false}).limit(30)
+        s.from("team_payment_provider_events").select("event_type,payment_status,match_strategy,provider_transaction_id,provider_recurring_id,source,processing_status,error_message,verification_status,normalized_payload,received_at,processed_at").eq("request_id",input.id).order("received_at",{ascending:false}).limit(30),
+        s.from("team_payment_charge_results").select("charge_date,outcome,reported_plan_amount_agorot,actual_amount_agorot,document_outcome,clearing_error,document_error").eq("request_id",input.id).order("charge_date",{ascending:false}).limit(36)
       ]);
-      return out({ok:true,request:r,consent:c,audit:logs||[],provider_events:events||[]});
+      if(ae||pe||che)throw new Error("DETAIL_LOOKUP_FAILED");
+      return out({ok:true,request:r,consent:c,audit:logs||[],charges:charges||[],provider_events:(events||[]).map((e:any)=>{const {normalized_payload,...rest}=e;return {...rest,manual_provider_confirmed:normalized_payload?.standing_order_status_confirmed==="active"&&!!normalized_payload?.manual_confirmation_source}})});
     }
 
     if(input.action==="admin_people") {
@@ -618,6 +620,7 @@ Deno.serve(async (req:Request)=>{
       if(["active","finished"].includes(input.payment_status)&&!current.form_completed_at) return out({ok:false,code:"FORM_REQUIRED"},409);
       const now=new Date().toISOString();
       const patch:any={payment_status:input.payment_status,updated_at:now};
+      if(["active","finished","cancelled"].includes(input.payment_status))patch.provider_standing_order_status=input.payment_status;
       if(["active","finished"].includes(input.payment_status)) {
         patch.request_status="completed"; patch.completed_at=now; patch.cancelled_at=null;
       } else if(input.payment_status==="cancelled") {
@@ -733,10 +736,16 @@ Deno.serve(async (req:Request)=>{
       const {data:child}=await s.from("children").select("id,parent_id").eq("id",childId).maybeSingle();
       if(!child||child.parent_id!==u.id) return out({ok:false,code:"NOT_FOUND"},404);
       const {data:rows,error}=await s.from("team_payment_requests")
-        .select("id,season_label,amount_agorot,currency,billing_frequency,billing_start_date,billing_end_date,number_of_cycles,request_status,payment_status,provider_last_synced_at,completed_at,created_at")
+        .select("id,season_label,amount_agorot,currency,billing_frequency,billing_start_date,billing_end_date,number_of_cycles,request_status,payment_status,provider_standing_order_status,provider_last_charge_status,provider_last_charge_date,provider_last_synced_at,completed_at,created_at")
         .eq("child_id",childId).order("created_at",{ascending:false}).limit(20);
       if(error) throw error;
-      return out({ok:true,payments:rows||[]});
+      const requestIds=(rows||[]).map((r:any)=>r.id);
+      let charges:any[]=[];
+      if(requestIds.length){
+        const {data,error:ce}=await s.from("team_payment_charge_results").select("request_id,charge_date,outcome,reported_plan_amount_agorot,actual_amount_agorot,document_outcome").in("request_id",requestIds).order("charge_date",{ascending:false}).limit(200);
+        if(ce)throw new Error("CHARGE_LOOKUP_FAILED");charges=data||[];
+      }
+      return out({ok:true,payments:(rows||[]).map((r:any)=>({...r,charges:charges.filter(c=>c.request_id===r.id).map(({request_id,...c})=>c)}))});
     }
 
     if(input.action==="public_portal_setup") {
