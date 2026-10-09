@@ -2,7 +2,7 @@ const out=document.getElementById('state');
 const raw=new URLSearchParams(location.search).get('confirmation_url')||'';
 try{
   const u=new URL(raw);
-  const okHost=u.hostname.endsWith('.supabase.co');
+  const okHost=u.protocol==='https:' && u.hostname==='zwgpvwxdofjidshsiaek.supabase.co' && !u.username && !u.password && !u.port;
   const okPath=u.pathname==='/auth/v1/verify';
   const okType=(u.searchParams.get('type')||'')==='recovery';
   if(!okHost||!okPath||!okType) throw new Error('bad');
@@ -17,3 +17,4 @@ try{
 }catch(e){
   out.innerHTML='<div class="err">קישור השחזור אינו תקין. בקש קישור חדש.</div>';
 }
+

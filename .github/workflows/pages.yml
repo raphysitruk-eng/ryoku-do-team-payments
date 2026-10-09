@@ -87,3 +87,7 @@ jobs:
           grep -q 'src="portal.js' portal.html
           echo 'JavaScript syntax and CSP checks OK'
 
+      - name: Test public registration and parent portal behavior
+        run: node --test tests/public-ui.test.mjs
+
+

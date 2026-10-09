@@ -1,30 +1,43 @@
 const BASE="https://zwgpvwxdofjidshsiaek.supabase.co",KEY="sb_publishable_ghdkoJZwwRIvKTsRJXr2xA_Jhfi9NS6",API="https://zwgpvwxdofjidshsiaek.supabase.co/functions/v1/team-payment-api-v2";
-const sb=window.supabase.createClient(BASE,KEY,{auth:{persistSession:true,storage:window.sessionStorage,autoRefreshToken:true,detectSessionInUrl:false}});
-const $=x=>document.getElementById(x),esc=s=>String(s??"").replace(/[&<>"]/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[m])),fmt=d=>d?new Date(d).toLocaleDateString("he-IL"):"—",money=a=>(Number(a||0)/100).toLocaleString("he-IL")+" ₪";
-let profile=null,children=[],selected=null;
+const temporarySession=new Map();
+const portalStorage={
+ getItem(key){try{return window.sessionStorage.getItem(key)??temporarySession.get(key)??null}catch{return temporarySession.get(key)??null}},
+ setItem(key,value){temporarySession.set(key,value);try{window.sessionStorage.setItem(key,value)}catch{}},
+ removeItem(key){temporarySession.delete(key);try{window.sessionStorage.removeItem(key)}catch{}}
+};
+function boundedFetch(url,options={}){return fetch(url,{...options,...(!options.signal&&typeof AbortSignal!=="undefined"&&typeof AbortSignal.timeout==="function"?{signal:AbortSignal.timeout(20000)}:{})})}
+const sb=window.supabase.createClient(BASE,KEY,{global:{fetch:boundedFetch},auth:{persistSession:true,storage:portalStorage,autoRefreshToken:true,detectSessionInUrl:false}});
+const $=x=>document.getElementById(x),esc=s=>String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m])),fmt=d=>d?new Date(d).toLocaleDateString("he-IL"):"—",money=a=>(Number(a||0)/100).toLocaleString("he-IL")+" ₪";
+let profile=null,children=[],selected=null,selectionVersion=0;
 function authPhone(v){let x=String(v||"").replace(/\D/g,"");if(x.startsWith("972"))x="0"+x.slice(3);return /^0\d{8,9}$/.test(x)?"+972"+x.slice(1):""}function loginEmail(v){const p=authPhone(v),d=p.replace(/\D/g,"");return d?"member-"+d+"@accounts.ryokudoacademy.com":""}
 function strong(v){const s=String(v||"");return s.length>=12&&s.length<=128&&/[A-Za-z]/.test(s)&&/\d/.test(s)}
 function empty(el,msg){$(el).innerHTML="<p class='muted'>"+esc(msg)+"</p>"}
-async function portalCall(body){const {data}=await sb.auth.getSession();const token=data.session?.access_token||"";if(!token)throw new Error("UNAUTHORIZED");const r=await fetch(API,{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer "+token},body:JSON.stringify(body)}),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.code||"ERROR");return x}
+async function portalCall(body){const {data}=await sb.auth.getSession();const token=data.session?.access_token||"";if(!token)throw new Error("UNAUTHORIZED");const r=await boundedFetch(API,{method:"POST",headers:{"content-type":"application/json","authorization":"Bearer "+token},body:JSON.stringify(body)}),x=await r.json().catch(()=>({}));if(!r.ok)throw new Error(x.code||"ERROR");return x}
 function reqLabel(v){return ({draft:"טיוטה",sent:"נשלח",opened:"נפתח",form_completed:"טופס הושלם",payment_pending:"ממתין לתשלום",completed:"הושלם",expired:"פג תוקף",cancelled:"בוטל"}[v]||v||"—")}
 function payState(v,requestStatus=""){if(v==="not_started"&&requestStatus==="payment_pending")return "ממתין לאימות תשלום";return ({not_started:"טרם התחיל",pending:"ממתין לאישור",active:"פעיל",failed:"נכשל",finished:"הסתיים",cancelled:"בוטל"}[v]||v||"—")}
 function teamPaymentState(r){if(r.provider_standing_order_status==="active"){if(r.provider_last_charge_status==="failed")return "הוראת קבע פעילה · החיוב האחרון נכשל";if(!r.provider_last_charge_date)return "הוראת קבע פעילה · טרם התקבל אישור חיוב";return "הוראת קבע פעילה"}return payState(r.payment_status,r.request_status)}
 function teamChargeHistory(charges){return (charges||[]).length?"<div>"+charges.map(c=>"<div class='list-item'><b>"+esc(fmt(c.charge_date))+" · "+(c.outcome==="succeeded"?"חיוב אושר":"חיוב נכשל")+"</b><br><span class='muted'>סכום חודשי בהוראה: "+money(c.reported_plan_amount_agorot)+(c.actual_amount_agorot!==null&&c.actual_amount_agorot!==undefined?" · סכום חיוב: "+money(c.actual_amount_agorot):"")+(c.document_outcome==="failed"?" · המסמך בטיפול":"")+"</span></div>").join("")+"</div>":""}
-async function signOut(){await sb.auth.signOut();profile=null;children=[];selected=null;$("portalApp").classList.add("hidden");$("logoutBtn").classList.add("hidden");$("loginCard").classList.remove("hidden")}
+async function signOut(){selectionVersion++;profile=null;children=[];selected=null;$("childArea").classList.add("hidden");$("childArea").removeAttribute("aria-busy");$("portalApp").classList.add("hidden");$("logoutBtn").classList.add("hidden");$("loginCard").classList.remove("hidden");await sb.auth.signOut()}
 async function boot(){const {data}=await sb.auth.getSession();if(data.session)await loadPortal();else $("loginCard").classList.remove("hidden")}
 async function loadPortal(){
- const {data:{user},error:ue}=await sb.auth.getUser();if(ue||!user)return signOut();
+ const version=++selectionVersion;
+ const {data:{user},error:ue}=await sb.auth.getUser();if(version!==selectionVersion)return;if(ue||!user)return signOut();
  const {data:p,error:pe}=await sb.from("profiles").select("id,full_name,phone,email,role,approval_status").eq("id",user.id).maybeSingle();
+ if(version!==selectionVersion)return;
  if(pe||!p||p.role!=="parent"||p.approval_status!=="approved"){await signOut();$("loginMsg").innerHTML="<div class='err'>החשבון עדיין אינו מאושר לאזור האישי. יש לפנות להנהלה.</div>";return}
  profile=p;const {data:c,error:ce}=await sb.from("children").select("id,first_name,last_name,branch,group_name,current_rank,next_rank,joined_on,active").eq("active",true).order("first_name");
+ if(version!==selectionVersion)return;
  if(ce)throw ce;children=c||[];$("loginCard").classList.add("hidden");$("portalApp").classList.remove("hidden");$("logoutBtn").classList.remove("hidden");$("welcome").textContent="שלום "+(p.full_name||"");$("parentMeta").textContent=[p.phone,p.email].filter(Boolean).join(" · ");
  renderTabs();if(children.length)await selectChild(children[0].id);else{$("childArea").classList.add("hidden");$("childTabs").innerHTML="<p class='muted'>עדיין לא משויך חניך לחשבון זה.</p>"}
 }
 function renderTabs(){$("childTabs").innerHTML=children.map(c=>"<button type='button' class='btn soft "+(selected===c.id?"active":"")+"' data-child='"+esc(c.id)+"'>"+esc((c.first_name+" "+c.last_name).trim())+"</button>").join("");document.querySelectorAll("[data-child]").forEach(b=>b.onclick=()=>selectChild(b.dataset.child))}
 async function selectChild(id){
- selected=id;renderTabs();const child=children.find(x=>x.id===id);if(!child)return;$("childArea").classList.remove("hidden");
+ const child=children.find(x=>x.id===id);if(!child||!profile)return;const version=++selectionVersion;
+ selected=id;renderTabs();$("childArea").classList.remove("hidden");$("childArea").setAttribute("aria-busy","true");
+ ["childProfile","attendanceList","achievementList","billingList","resourceList","eventList"].forEach(key=>empty(key,"טוענים נתונים…"));
+ ["currentRank","nextRank","progressPercent","attendanceCount","monthlyGoal","coachFeedback","personalPlan","nextRankMaterial"].forEach(key=>$(key).textContent="…");$("progressFill").style.width="0%";
  const now=new Date().toISOString();
- const [pr,at,ac,bi,gr,ev,rg,tp]=await Promise.all([
+ const results=await Promise.allSettled([
   sb.from("student_progress").select("*").eq("child_id",id).maybeSingle(),
   sb.from("attendance").select("training_date,status,note").eq("child_id",id).order("training_date",{ascending:false}).limit(20),
   sb.from("achievements").select("title,achieved_on,certificate_url,note").eq("child_id",id).order("achieved_on",{ascending:false}).limit(20),
@@ -34,6 +47,9 @@ async function selectChild(id){
   sb.from("event_registrations").select("event_id,status").eq("child_id",id),
   portalCall({action:"parent_portal_payments",child_id:id}).catch(()=>({payments:[],payment_status_unavailable:true}))
  ]);
+ if(version!==selectionVersion||selected!==id||!profile)return;
+ const [pr,at,ac,bi,gr,ev,rg,tp]=results.map(result=>result.status==="fulfilled"?result.value:{data:null,error:result.reason,payment_status_unavailable:true});
+ $("childArea").removeAttribute("aria-busy");
  const progress=pr.data||{};const attendance=at.data||[],ach=ac.data||[],billing=bi.data||[],resources=gr.data||[],events=ev.data||[],regs=rg.data||[],teamPayments=tp.payments||[];const paymentUnavailable=!!tp.payment_status_unavailable;
  const pct=Math.min(100,Math.max(0,Number(progress.progress_percent||0)));$("currentRank").textContent=child.current_rank||"—";$("nextRank").textContent=child.next_rank||"—";$("progressPercent").textContent=pct+"%";$("progressFill").style.width=pct+"%";$("attendanceCount").textContent=attendance.filter(x=>x.status==="present"||x.status==="נוכח").length+"/"+attendance.length;$("monthlyGoal").textContent=progress.monthly_goal||"טרם הוגדר.";$("coachFeedback").textContent=progress.coach_feedback||"טרם הוזן משוב.";$("personalPlan").textContent=progress.personal_plan||"טרם הוגדרה.";$("nextRankMaterial").textContent=progress.next_rank_material||"טרם הוזן חומר.";
  $("childProfile").innerHTML="<p><b>שם:</b> "+esc((child.first_name+" "+child.last_name).trim())+"<br><b>סניף:</b> "+esc(child.branch||"—")+"<br><b>קבוצה:</b> "+esc(child.group_name||"—")+"<br><b>חבר/ה במועדון מתאריך:</b> "+esc(child.joined_on?fmt(child.joined_on):"—")+"</p>";
@@ -42,6 +58,13 @@ async function selectChild(id){
  $("billingList").innerHTML=paymentUnavailable?"<p class='muted'>סטטוס התשלום אינו זמין כרגע. שאר האזור האישי ממשיך לפעול כרגיל.</p>"+billing.map(x=>"<div class='list-item'><b>"+esc(x.period_label)+"</b> · "+money(x.amount_agorot)+" · "+esc(payLabel(x.status))+(safeUrl(x.receipt_url)?"<br><a href='"+esc(x.receipt_url)+"' target='_blank' rel='noopener'>פתיחת קבלה</a>":"")+"</div>").join(""):(teamPayments.length||billing.length)?teamPayments.map(x=>"<div class='list-item'><b>נבחרת · "+esc(x.season_label||"")+"</b><br><span>"+money(x.amount_agorot)+" · "+esc(teamPaymentState(x))+"</span><br><span class='muted'>סטטוס בקשה: "+esc(reqLabel(x.request_status))+(x.billing_end_date?" · עד "+esc(fmt(x.billing_end_date)):"")+"</span>"+teamChargeHistory(x.charges)+"</div>").join("")+billing.map(x=>"<div class='list-item'><b>"+esc(x.period_label)+"</b> · "+money(x.amount_agorot)+" · "+esc(payLabel(x.status))+(safeUrl(x.receipt_url)?"<br><a href='"+esc(x.receipt_url)+"' target='_blank' rel='noopener'>פתיחת קבלה</a>":"")+"</div>").join(""):"<p class='muted'>עדיין אין נתוני תשלום להצגה.</p>";
  $("resourceList").innerHTML=resources.length?resources.map(x=>"<div class='list-item'><b>"+esc(x.title_he)+"</b>"+(x.description_he?"<br><span class='muted'>"+esc(x.description_he)+"</span>":"")+(safeUrl(x.resource_url)?"<br><a href='"+esc(x.resource_url)+"' target='_blank' rel='noopener'>פתיחת חומר</a>":"")+"</div>").join(""):"<p class='muted'>חומרי הדרגה יופיעו כאן כאשר יפורסמו.</p>";
  const regMap=new Map(regs.map(x=>[x.event_id,x.status]));$("eventList").innerHTML=events.length?events.map(x=>"<div class='list-item'><b>"+esc(x.title_he)+"</b> · "+esc(new Date(x.starts_at).toLocaleString("he-IL"))+(x.branch?" · "+esc(x.branch):"")+(x.description_he?"<br><span class='muted'>"+esc(x.description_he)+"</span>":"")+(regMap.has(x.id)?"<br><span class='muted'>סטטוס הרשמה: "+esc(registrationLabel(regMap.get(x.id)))+"</span>":"")+"</div>").join(""):"<p class='muted'>אין אירועים קרובים להצגה.</p>";
+ const unavailable="לא ניתן לטעון כרגע. בחרו שוב בחניך כדי לנסות מחדש.";
+ if(pr.error){["monthlyGoal","coachFeedback","personalPlan","nextRankMaterial"].forEach(key=>$(key).textContent=unavailable);$("progressPercent").textContent="—";}
+ if(at.error){empty("attendanceList",unavailable);$("attendanceCount").textContent="—";}
+ if(ac.error)empty("achievementList",unavailable);
+ if(gr.error)empty("resourceList",unavailable);
+ if(ev.error)empty("eventList",unavailable);else if(rg.error)$("eventList").innerHTML="<p class='muted'>סטטוס ההרשמה לאירועים אינו זמין כרגע.</p>"+$("eventList").innerHTML;
+ if(bi.error){const message="<p class='muted'>נתוני הקבלות והחיובים הנוספים אינם זמינים כרגע. בחרו שוב בחניך כדי לנסות מחדש.</p>";$("billingList").innerHTML=teamPayments.length?$("billingList").innerHTML+message:message+(paymentUnavailable?"<p class='muted'>סטטוס תשלום הנבחרת אינו זמין כרגע.</p>":"");}
 }
 function safeUrl(v){try{const u=new URL(v);return u.protocol==="https:"}catch{return false}}
 function payLabel(v){return ({paid:"שולם",pending:"ממתין",failed:"נכשל",cancelled:"בוטל",refunded:"זוכה",active:"פעיל",finished:"הסתיים"}[v]||v||"—")}function attendanceLabel(v){return ({present:"נוכח",absent:"נעדר",excused:"היעדרות מאושרת"}[v]||v||"—")}function registrationLabel(v){return ({registered:"רשום",waitlist:"רשימת המתנה",cancelled:"בוטל",approved:"מאושר"}[v]||v||"—")}
@@ -49,4 +72,5 @@ $("loginForm").onsubmit=async e=>{e.preventDefault();const b=$("loginBtn"),phone
 $("logoutBtn").onclick=signOut;$("changePasswordBtn").onclick=()=>{$("passwordModal").classList.remove("hidden");$("passwordMsg").textContent=""};$("passwordClose").onclick=()=>$("passwordModal").classList.add("hidden");
 $("passwordForm").onsubmit=async e=>{e.preventDefault();const p1=$("newPassword").value,p2=$("newPassword2").value;if(!strong(p1)){$("passwordMsg").innerHTML="<div class='err'>הסיסמה חייבת להכיל לפחות 12 תווים, אות באנגלית ומספר.</div>";return}if(p1!==p2){$("passwordMsg").innerHTML="<div class='err'>הסיסמאות אינן זהות.</div>";return}const {error}=await sb.auth.updateUser({password:p1});if(error){$("passwordMsg").innerHTML="<div class='err'>לא ניתן לשנות סיסמה כרגע.</div>";return}$("newPassword").value=$("newPassword2").value="";$("passwordMsg").innerHTML="<div class='info'>הסיסמה עודכנה בהצלחה.</div>"};
 boot().catch(()=>{$("loginMsg").innerHTML="<div class='err'>לא ניתן לטעון כרגע את האזור האישי.</div>"});
+
 
