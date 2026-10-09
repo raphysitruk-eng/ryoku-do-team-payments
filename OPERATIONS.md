@@ -126,3 +126,10 @@ Cancellation and modification of a real mandate remain provider-admin operations
 
 Verification: `node --test tests/*.test.mjs` covers parsing, credential validation, unsigned forgery, durable queuing and replay. `tests/invoice4u-sync.test.sql` checks financial updates, duplicate/conflicting notifications, document failures, chronology, form guards, amount/currency mismatch, schedule, payer aliases and privileges inside a transaction that is completely rolled back. These tests do not contact Invoice4U or create a financial operation.
 
+
+## Open-mat registrations
+
+The existing admin dashboard includes open-mat reservations for adults 18+ at
+Beit Yehezkel. Details and the hourly Gmail outbox process are documented in
+[OPEN-MAT-NOTIFICATIONS.md](OPEN-MAT-NOTIFICATIONS.md). No Invoice4U billing or
+standing-order behavior is changed.

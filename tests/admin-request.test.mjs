@@ -153,10 +153,10 @@ test('server validation, duplicate and expired-login responses show actionable e
 });
 
 function backend() {
-  const state = { requests: [], audit: [], children: [], profiles: [], config: structuredClone(settings) };
+  const state = { openMat: [], adminProfile: { id: "test-admin", role: "admin", approval_status: "approved" }, requests: [], audit: [], children: [], profiles: [], config: structuredClone(settings) };
   class Query {
     constructor(table) { this.table = table; this.filters = []; this.operation = 'select'; }
-    select() { return this; } eq(key, value) { this.filters.push(row => row[key] === value); return this; }
+    select(columns) { this.columns=columns; return this; } order(){return this;} range(from,to){this.from=from;this.to=to;return this;} or(value){this.search=value;return this;} eq(key, value) { this.filters.push(row => row[key] === value); return this; }
     neq(key, value) { this.filters.push(row => row[key] !== value); return this; } limit() { return this; }
     insert(value) { this.operation = 'insert'; this.value = value; return this; }
     async execute(single = false) {
@@ -166,8 +166,11 @@ function backend() {
         if (this.table === 'team_payment_requests') state.requests.push(...result); else if (this.table === 'team_payment_audit_log') state.audit.push(...result);
         return { data: single ? result[0] : result, error: null };
       }
-      const tables = { team_payment_settings: [state.config], profiles: [{ id: 'test-admin', role: 'admin', approval_status: 'approved' }, ...state.profiles], children: state.children, team_payment_requests: state.requests, team_payment_terms_versions: [] };
-      const rows = (tables[this.table] || []).filter(row => this.filters.every(filter => filter(row)));
+      const tables = { team_payment_settings: [state.config], profiles: [state.adminProfile, ...state.profiles], children: state.children, team_payment_requests: state.requests, team_payment_terms_versions: [], open_mat_registrations: state.openMat };
+      let rows = (tables[this.table] || []).filter(row => this.filters.every(filter => filter(row)));
+      const count=rows.length;
+      if(this.table==='open_mat_registrations')rows=rows.slice(this.from||0,(this.to??49)+1).map(r=>Object.fromEntries(Object.entries(r).filter(([k])=>this.columns.includes(k))));
+      if(this.table==='open_mat_registrations')return {data:rows,error:null,count};
       return { data: single ? rows[0] || null : rows, error: null };
     }
     single() { return this.execute(true); } maybeSingle() { return this.execute(true); }
@@ -228,4 +231,25 @@ test('backend still requires an authenticated administrator with two-factor assu
     const h = backend(); const result = await h.submit(validRequest, aal);
     assert.equal(result.status, 401); assert.equal(result.body.code, 'UNAUTHORIZED'); assert.equal(h.state.requests.length, 0);
   }
+});
+
+
+test('open-mat listing requires an approved administrator and AAL2', async()=>{
+  const h=backend();
+  assert.equal((await h.submit({action:'admin_open_mat_list'},null)).status,401);
+  assert.equal((await h.submit({action:'admin_open_mat_list'},'aal1')).status,401);
+  h.state.adminProfile.role='parent';assert.equal((await h.submit({action:'admin_open_mat_list'})).status,401);
+  h.state.adminProfile.role='admin';h.state.adminProfile.approval_status='pending';assert.equal((await h.submit({action:'admin_open_mat_list'})).status,401);
+});
+test('open-mat listing filters dates and omits IDs, birth dates, mail bodies and credentials',async()=>{
+  const h=backend();h.state.openMat.push({reference:'OM-000000000001',full_name:'חניך בדיקה',phone:'0500000000',email:'test@example.invalid',training_date:'2026-10-12',training_time:'20:30',amount_agorot:3000,national_id:'123456782',birth_date:'1990-01-01',request_key_hash:'secret',payload_hash:'private',consent_snapshot:{},open_mat_notifications:[{kind:'participant',state:'pending'}]});
+  const x=await h.submit({action:'admin_open_mat_list',training_date:'2026-10-12'});assert.equal(x.status,200);assert.equal(x.body.total,1);assert.equal(x.body.registrations[0].full_name,'חניך בדיקה');
+  for(const k of ['national_id','birth_date','request_key_hash','payload_hash','consent_snapshot'])assert.equal(x.body.registrations[0][k],undefined);
+  assert.equal((await h.submit({action:'admin_open_mat_list',training_date:'2026-10-13'})).body.total,0);
+  assert.equal((await h.submit({action:'admin_open_mat_list',training_date:'2026-02-30'})).status,400);
+});
+test('open-mat date and search controls call only the authenticated reservation API',async()=>{
+  const h=frontend();h.el('openMatSearch').value='בדיקה';h.el('openMatDate').value='2026-10-12';await h.el('openMatRefresh').onclick();
+  assert.deepEqual(h.calls.at(-1),{action:'admin_open_mat_list',page:1,page_size:50,search:'בדיקה',training_date:'2026-10-12'});
+  assert.ok(h.el('openMatRows').textContent.includes('אין הזמנות'));
 });

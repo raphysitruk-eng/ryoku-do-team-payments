@@ -287,6 +287,21 @@ Deno.serve(async (req:Request)=>{
     const input=await req.json();
     const s=svc();
 
+    if(input.action==="admin_open_mat_list") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const rawPage=Number(input.page||1), rawSize=Number(input.page_size||50);
+      const page=Number.isFinite(rawPage)?Math.min(10000,Math.max(1,Math.floor(rawPage))):1;
+      const pageSize=Number.isFinite(rawSize)?Math.min(100,Math.max(10,Math.floor(rawSize))):50;
+      const q=String(input.search||"").trim().replace(/[^\p{L}\p{N}\s@.+\-]/gu," ").replace(/\s+/g," ").slice(0,80);
+      const date=String(input.training_date||"");
+      if(date&&(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+"T00:00:00Z"))||new Date(date+"T00:00:00Z").toISOString().slice(0,10)!==date))return out({ok:false,code:"INVALID_DATE"},400);
+      let query=s.from("open_mat_registrations").select("reference,full_name,phone,email,training_date,training_time,amount_agorot,booking_status,payment_status,payment_reference,payment_reported_at,terms_version,created_at,open_mat_notifications(kind,state,sent_at,last_error_code)",{count:"exact"}).order("created_at",{ascending:false}).range((page-1)*pageSize,page*pageSize-1);
+      if(q)query=query.or("full_name.ilike.%"+q+"%,phone.ilike.%"+q+"%,email.ilike.%"+q+"%,reference.ilike.%"+q+"%");
+      if(date)query=query.eq("training_date",date);
+      const {data,error,count}=await query;if(error)throw error;
+      return out({ok:true,registrations:data||[],page,page_size:pageSize,total:count||0,total_pages:Math.max(1,Math.ceil((count||0)/pageSize))});
+    }
+
     if(input.action==="admin_list") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
       const page=Math.max(1,Math.floor(Number(input.page||1)));
@@ -873,4 +888,5 @@ Deno.serve(async (req:Request)=>{
     return out({ok:false,code:"SERVICE_UNAVAILABLE"},503);
   }
 });
+
 
