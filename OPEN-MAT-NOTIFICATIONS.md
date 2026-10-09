@@ -2,7 +2,7 @@
 
 User instruction: send every registrant an acknowledgement of receipt and email
 Raphy an alert for each new registration. The owner account was verified as
-`raphy.sitruk@gmail.com`. Adults only, Monday/Tuesday, 20:30–22:30. The Site is
+`raphy.sitruk@gmail.com`. Adults only, Monday/Tuesday/Wednesday, 20:30–22:30. The Site is
 owner-private until the owner explicitly changes its audience.
 
 The canonical registrations and the two unique notification jobs per registration

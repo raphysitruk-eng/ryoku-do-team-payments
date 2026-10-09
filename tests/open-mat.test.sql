@@ -14,7 +14,7 @@ declare
 begin
   p:=jsonb_build_object('reference',reference,'requestKeyHash',key_hash,'participantSessionHash',session_hash,'payloadHash',payload_hash,
     'fullName','מתאמן בדיקה','nationalId','123456782','phone','0500000000','email','test@example.invalid',
-    'birthDate','1990-01-01','trainingDate',next_monday,'trainingTime','20:30','termsVersion','2026-10-09.2',
+    'birthDate','1990-01-01','trainingDate',next_monday,'trainingTime','20:30','termsVersion','2026-10-09.3',
     'termsHash',repeat('a',64),'consentSnapshot','{"adult":true,"hall":true,"equipment":true,"insurance":true,"termsAndPrivacy":true}'::jsonb);
   first_result:=public.register_open_mat(p,repeat('b',64));
   assert first_result->>'reference'=reference, 'reference retained';
@@ -28,7 +28,7 @@ begin
   begin perform public.register_open_mat(p||jsonb_build_object('payloadHash',repeat('c',64)),repeat('b',64));raise exception 'TEST_FAILURE_KEY'; exception when others then if sqlerrm<>'KEY_CONFLICT' then raise; end if; end;
   begin perform public.register_open_mat(p||jsonb_build_object('requestKeyHash',repeat('d',64)),repeat('b',64));raise exception 'TEST_FAILURE_DUPLICATE'; exception when others then if sqlerrm<>'DUPLICATE_SESSION' then raise; end if; end;
   begin perform public.register_open_mat(p||jsonb_build_object('requestKeyHash',repeat('e',64),'birthDate',(now() at time zone 'Asia/Jerusalem')::date-interval '17 years'),repeat('b',64));raise exception 'TEST_FAILURE_MINOR'; exception when others then if sqlerrm<>'ADULTS_ONLY' then raise; end if; end;
-  begin perform public.register_open_mat(p||jsonb_build_object('requestKeyHash',repeat('e',64),'trainingDate',next_monday+2),repeat('b',64));raise exception 'TEST_FAILURE_WEEKDAY'; exception when others then if sqlerrm<>'INVALID_DATE' then raise; end if; end;
+  begin perform public.register_open_mat(p||jsonb_build_object('requestKeyHash',repeat('e',64),'trainingDate',next_monday+3),repeat('b',64));raise exception 'TEST_FAILURE_WEEKDAY'; exception when others then if sqlerrm<>'INVALID_DATE' then raise; end if; end;
   begin perform public.register_open_mat(p||jsonb_build_object('requestKeyHash',repeat('e',64),'trainingTime','22:30'),repeat('b',64));raise exception 'TEST_FAILURE_TIME'; exception when others then if sqlerrm<>'INVALID_DATE' then raise; end if; end;
   begin perform public.register_open_mat(p||jsonb_build_object('requestKeyHash',repeat('e',64),'consentSnapshot','{}'::jsonb),repeat('b',64));raise exception 'TEST_FAILURE_CONSENT'; exception when others then if sqlerrm<>'INVALID_CONSENT' then raise; end if; end;
   begin perform public.report_open_mat_payment(reference,repeat('f',64),'TEST');raise exception 'TEST_FAILURE_KEY_ACCESS'; exception when others then if sqlerrm<>'NOT_FOUND' then raise; end if; end;
@@ -36,6 +36,7 @@ begin
   assert replay->>'status'='reported_unverified', 'payment report stays unverified';
   replay:=public.report_open_mat_payment(reference,key_hash,'TEST-ONLY');
   assert replay->>'status'='reported_unverified', 'idempotent payment report';
+  assert public.register_open_mat(p||jsonb_build_object('reference','OM-'||upper(substr(md5(random()::text),1,12)),'requestKeyHash',repeat('6',64),'participantSessionHash',repeat('7',64),'trainingDate',next_monday+2),repeat('b',64))->>'status'='awaiting_payment', 'Wednesday registration allowed';
   select * into job from public.claim_open_mat_emails(1);
   assert job.state='processing' and job.lease_token is not null, 'leased mail';
   assert not exists(select 1 from public.claim_open_mat_emails(50) where id=job.id), 'claimed job not repeated';
