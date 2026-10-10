@@ -13,4 +13,11 @@ A follow-up definition and privilege check confirmed the guard is active, the he
 
 ## bit payment link
 
-The public registration site already accepts an official collection link through its server runtime `BIT_PAYMENT_URL`. No collection link for the open-mat recipient `0547501888` has been provided or configured. A direct collection link must be created in that recipient's bit app (group, 30 NIS, share/copy link). Until then, the existing transfer instructions and phone-copy control remain available. Do not substitute another recipient's QR or construct an undocumented payment URL. Payment reports continue to require Raphy's verification.
+On 2026-10-10 the owner provided this bit collection link for "מזרון פתוח":
+https://www.bitpay.co.il/app/share-info?i=7SBBRJh_&j=true
+
+The owner's bit request states a payment of 30 NIS to Raphy Sitruk and a collection deadline of 2027-10-09. The exact official HTTPS link is configured as non-secret server runtime `BIT_PAYMENT_URL` on Site `appgprj_6ac8bb82315081919ceae63a789123bf`. All other runtime keys were preserved.
+
+Production deployment `appgdep_6ac9e685090c81919ef622fa22f25da1` succeeded with environment revision 2 and existing saved version 4 (`e9787df2367f8c21e80914bef6dcb043a7a481c2`). The registration form already reads this runtime setting and displays its "לתשלום ב-bit" link after a successful registration. No payment was executed or automatically verified. Payment reports and hall entry still require Raphy's verification/approval.
+
+The owner should replace the collection link when the group closes or before the stated collection deadline. No account upgrade or billing change was performed.
