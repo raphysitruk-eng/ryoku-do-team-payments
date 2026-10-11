@@ -88,3 +88,88 @@ test('portal authentication can use a temporary tab session when storage is bloc
   assert.equal(vm.runInContext('portalStorage.getItem("fixture-session")',f.context),null);
 });
 
+const adminSource=await readFile(new URL('../admin.js',import.meta.url),'utf8');
+function adminFixture(reply){
+  const nodes=new Map(),sent=[];
+  const get=id=>{if(!nodes.has(id)){
+    const node=new Element();node.value='';node.checked=false;node.disabled=false;node.events={};
+    node.classList.toggle=(name,on)=>{if(on??!node.classes.has(name))node.classes.add(name);else node.classes.delete(name);};
+    node.addEventListener=(name,fn)=>node.events[name]=fn;node.focus=()=>{};node.reportValidity=()=>true;
+    node.showModal=()=>node.open=true;node.close=()=>node.open=false;nodes.set(id,node);
+  }return nodes.get(id);};
+  const sb={rpc:async()=>({data:17,error:null}),auth:{getSession:async()=>({data:{session:null}}),onAuthStateChange(){},signOut:async()=>{}}};
+  const context=vm.createContext({window:{supabase:{createClient:()=>sb},sessionStorage:{},RyokuAdminUI:{activeTab:'payments',updateSummary(){},updateAttention(){},onChange(){}}},document:{getElementById:get,querySelectorAll:()=>[]},location:{hash:'',pathname:'/admin.html',search:''},URLSearchParams,URL,Date,Math,Number,String,Object,Map,Set,Promise,setTimeout,clearTimeout,console,confirm:()=>true,alert(){},fetch:async(url,options)=>{
+    const body=JSON.parse(options.body);sent.push(body);const response=await reply(body);
+    return {ok:(response?.status||200)<400,status:response?.status||200,json:async()=>response?.data||{}};
+  }});
+  vm.runInContext(gaugeSource,context);vm.runInContext(adminSource,context);
+  vm.runInContext('jwt="test-session";adminReady=true;',context);
+  return {context,get,sent,sb};
+}
+const studentReply=id=>({data:{child:{id,parent_id:'parent-'+id,first_name:id,last_name:'Student',student_id_type:'passport',student_id_number:'GB725469',current_rank:'צהובה'},parent:{full_name:'Parent '+id},progress:{progress_percent:17}}});
+
+test('admin section failures keep the signed-in session and other sections usable',async()=>{
+  const f=adminFixture(body=>({data:body.action==='admin_settings'?{settings:{}}:body.action==='admin_list'?{requests:[{id:'one',student_name:'Loaded student'}],total:1}:body.action==='admin_summary'?{code:'SERVICE_UNAVAILABLE'}:{attention:{}},status:body.action==='admin_summary'?503:200}));
+  await vm.runInContext('load()',f.context);
+  assert.equal(vm.runInContext('jwt',f.context),'test-session');assert.equal(f.get('login').classes.has('hidden'),true);assert.equal(f.get('app').classes.has('hidden'),false);
+  assert.match(f.get('rows').innerHTML,/Loaded student/);assert.match(f.get('overviewUpdated').textContent,/לא ניתן/);
+  assert.equal(f.sent.some(x=>['admin_students','admin_open_mat_list','admin_grade_exam_list'].includes(x.action)),false);
+});
+test('payment search loads only the payment list and preserves the overview totals',async()=>{
+  const f=adminFixture(()=>({data:{requests:[],page:1,total_pages:1,total:0}}));
+  vm.runInContext('renderSummary({all:20,pending:5,active:10,monthly_agorot:150000})',f.context);
+  f.get('search').value='missing';await vm.runInContext('loadPayments()',f.context);
+  assert.deepEqual(f.sent.map(x=>x.action),['admin_list']);assert.equal(f.get('mAll').textContent,20);assert.equal(f.get('mActive').textContent,10);assert.match(f.get('mMoney').textContent,/1,500/);
+});
+test('late payment responses cannot replace the latest search',async()=>{
+  let release;const firstReply=new Promise(resolve=>release=resolve);
+  const f=adminFixture(body=>body.search==='first'?firstReply:{data:{requests:[{id:'second',student_name:'Latest search'}],total:1}});
+  f.get('search').value='first';const first=vm.runInContext('loadPayments()',f.context);await settle();
+  f.get('search').value='second';await vm.runInContext('loadPayments()',f.context);
+  release({data:{requests:[{id:'first',student_name:'Old search'}],total:1}});await first;
+  assert.match(f.get('rows').innerHTML,/Latest search/);assert.doesNotMatch(f.get('rows').innerHTML,/Old search/);
+});
+test('only an authorization failure returns the admin to the login screen',async()=>{
+  const offline=adminFixture(()=>Promise.reject(new Error('offline')));await vm.runInContext('loadPayments()',offline.context);
+  assert.equal(vm.runInContext('jwt',offline.context),'test-session');assert.match(offline.get('rows').innerHTML,/paymentsRetry/);
+  const denied=adminFixture(()=>({status:401,data:{code:'UNAUTHORIZED'}}));await vm.runInContext('loadPayments()',denied.context);
+  assert.equal(vm.runInContext('jwt',denied.context),'');assert.equal(denied.get('app').classes.has('hidden'),true);assert.equal(denied.get('login').classes.has('hidden'),false);
+});
+test('a temporary MFA service failure preserves the saved session for retry',async()=>{
+  const f=adminFixture(()=>({data:{}}));await settle();let signouts=0;
+  f.sb.auth.getSession=async()=>({data:{session:{access_token:'saved-session'}}});
+  f.sb.auth.signOut=async()=>{signouts++;};
+  f.sb.auth.mfa={getAuthenticatorAssuranceLevel:async()=>({data:{currentLevel:'aal2'},error:null}),listFactors:async()=>({data:{},error:{status:503,message:'temporarily unavailable'}})};
+  await vm.runInContext('completeLogin()',f.context);
+  assert.equal(vm.runInContext('jwt',f.context),'saved-session');assert.equal(signouts,0);assert.equal(f.get('loginRetry').classes.has('hidden'),false);assert.match(f.get('loginMsg').textContent,/החיבור נשמר/);
+});
+test('closing and switching a loading student clears old data and keeps saving locked',async()=>{
+  const releases={};const f=adminFixture(body=>new Promise(resolve=>releases[body.child_id]=resolve));
+  const first=vm.runInContext('openStudent("first")',f.context);await settle();
+  assert.equal(f.get('studentSave').disabled,true);await f.get('studentSave').onclick();assert.equal(f.sent.length,1);
+  f.get('studentClose').onclick();const second=vm.runInContext('openStudent("second")',f.context);await settle();
+  releases.first(studentReply('first'));await first;
+  assert.equal(vm.runInContext('currentStudentDetail',f.context),null);assert.equal(f.get('studentSave').disabled,true);assert.equal(f.get('sStudentId').value,'');
+  releases.second(studentReply('second'));await second;
+  assert.equal(vm.runInContext('currentStudentDetail.child.id',f.context),'second');assert.equal(f.get('studentSave').disabled,false);assert.equal(f.get('sStudentIdType').value,'passport');assert.equal(f.get('sStudentId').value,'GB725469');
+});
+test('a failed student load cannot save a previous student record',async()=>{
+  const f=adminFixture(()=>({status:503,data:{code:'SERVICE_UNAVAILABLE'}}));await vm.runInContext('openStudent("first")',f.context);await f.get('studentSave').onclick();
+  assert.equal(f.get('studentSave').disabled,true);assert.equal(vm.runInContext('currentStudentDetail',f.context),null);assert.equal(f.sent.length,1);assert.match(f.get('studentMore').innerHTML,/studentRetry/);
+});
+test('student save prevents duplicate writes and preserves the document type',async()=>{
+  let release;const saving=new Promise(resolve=>release=resolve);
+  const f=adminFixture(body=>body.action==='admin_student_detail'?studentReply(body.child_id):body.action==='admin_student_update'?saving:{data:{students:[]}});
+  await vm.runInContext('openStudent("second")',f.context);const first=f.get('studentSave').onclick();await settle();await f.get('studentSave').onclick();
+  const writes=f.sent.filter(x=>x.action==='admin_student_update');assert.equal(writes.length,1);assert.equal(writes[0].child_id,'second');assert.equal(writes[0].child.student_id_type,'passport');assert.equal(f.get('studentClose').disabled,true);
+  release({data:{ok:true}});await first;assert.equal(f.get('studentSave').disabled,false);assert.equal(f.get('studentClose').disabled,false);assert.match(f.get('studentSaveMsg').textContent,/נשמר/);
+});
+test('open mat approval requires payment evidence and reports concurrent changes',async()=>{
+  const f=adminFixture(()=>({status:409,data:{code:'STALE_RECORD'}}));
+  vm.runInContext('openMatEdit={reference:"OM-123456789ABC",updated_at:"2026-10-11T12:00:00Z",payment_status:"reported_unverified"}',f.context);
+  f.get('openMatModal').showModal();f.get('openMatEditPayment').value='verified';f.get('openMatEditBooking').value='approved';f.get('openMatNote').value='Verified payment';
+  await f.get('openMatEditForm').onsubmit({preventDefault(){}});assert.equal(f.sent.length,0);assert.match(f.get('openMatSaveMsg').textContent,/יש לאשר/);
+  f.get('openMatConfirmed').checked=true;await f.get('openMatEditForm').onsubmit({preventDefault(){}});
+  assert.equal(f.sent[0].action,'admin_open_mat_update');assert.equal(f.sent[0].payment_confirmed,true);assert.equal(f.get('openMatModal').open,true);assert.match(f.get('openMatSaveMsg').textContent,/עודכנה בינתיים/);assert.equal(f.get('openMatSave').disabled,false);
+});
+

@@ -6,6 +6,7 @@
   const storageKey = 'ryokudo-admin-topic';
   const valid = key => tabs.some(tab => tab.dataset.adminTab === key);
   let active = 'overview';
+  const listeners = new Set();
 
   function selectTab(key, {focus = false, remember = true, updateUrl = true} = {}) {
     if (!valid(key)) return;
@@ -29,6 +30,7 @@
       url.searchParams.set('tab', key);
       window.history.replaceState(window.history.state, '', url.href);
     }
+    listeners.forEach(listener => listener(key));
   }
 
   tabs.forEach((tab, index) => {
@@ -60,6 +62,7 @@
 
   window.RyokuAdminUI = Object.freeze({
     open: selectTab,
+    onChange(listener) { listeners.add(listener); return () => listeners.delete(listener); },
     updateSummary() {
       const node = document.getElementById('overviewUpdated');
       if (node) node.textContent = 'עודכן בשעה ' + new Date().toLocaleTimeString('he-IL', {hour: '2-digit', minute: '2-digit'});

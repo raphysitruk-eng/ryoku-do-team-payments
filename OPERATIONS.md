@@ -133,3 +133,30 @@ The existing admin dashboard includes open-mat reservations for adults 18+ at
 Beit Yehezkel. Details and the hourly Gmail outbox process are documented in
 [OPEN-MAT-NOTIFICATIONS.md](OPEN-MAT-NOTIFICATIONS.md). No Invoice4U billing or
 standing-order behavior is changed.
+
+
+## Management loading and booking review
+
+The admin loads the selected topic independently. Searching or paging payment
+requests reloads that list only. Transient service errors keep the signed-in
+session and display a retry in the affected topic; verified authorization
+failures return to login. Student forms clear previous data, reject late detail
+responses and block writes until loading finishes. Saving and password reset
+prevent duplicate actions.
+
+The overview's monthly figure is expected revenue from active mandates, not
+confirmed debits. Actual charge results remain in each payment request.
+
+Open-mat bookings can be approved or cancelled from the booking row. Approval
+requires verified payment. Marking a new payment verified requires explicit
+confirmation of actual receipt and a 3–500 character review note. The
+service-role-only, invoker RPC locks the booking, rejects stale timestamps and
+commits the update together with an audit entry. Public payment reporting also
+updates the concurrency timestamp. Cancellation preserves payment status and
+does not perform a refund. Original intake emails remain intake receipts.
+
+Verification: `node --test tests/public-ui.test.mjs` and, with Node 24+,
+`node tests/team-admin-api-smoke.mjs`. The database test
+`tests/open-mat-management-smoke.sql` uses a synthetic booking and rolls back
+all writes; it sends no email and does not create a real payment.
+

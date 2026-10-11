@@ -280,11 +280,13 @@ async function admin(req:Request) {
   const raw=(req.headers.get("authorization")||"").replace(/^Bearer\s+/,"");
   if(!raw) return null;
   const s=svc();
-  const {data:{user}}=await s.auth.getUser(raw);
+  const {data:{user},error:authError}=await s.auth.getUser(raw);
+  if(authError && (!authError.status || authError.status>=500)) throw authError;
   if(!user) return null;
   const claims=jwtPayload(raw);
   if(claims?.aal!=="aal2") return null;
-  const {data:p}=await s.from("profiles").select("id,role,approval_status").eq("id",user.id).maybeSingle();
+  const {data:p,error:profileError}=await s.from("profiles").select("id,role,approval_status").eq("id",user.id).maybeSingle();
+  if(profileError) throw profileError;
   return p?.role==="admin" && p?.approval_status==="approved" ? user : null;
 }
 async function approvedParent(req:Request) {
@@ -331,11 +333,24 @@ Deno.serve(async (req:Request)=>{
       const q=String(input.search||"").trim().replace(/[^\p{L}\p{N}\s@.+\-]/gu," ").replace(/\s+/g," ").slice(0,80);
       const date=String(input.training_date||"");
       if(date&&(!/^\d{4}-\d{2}-\d{2}$/.test(date)||!Number.isFinite(Date.parse(date+"T00:00:00Z"))||new Date(date+"T00:00:00Z").toISOString().slice(0,10)!==date))return out({ok:false,code:"INVALID_DATE"},400);
-      let query=s.from("open_mat_registrations").select("reference,full_name,phone,email,training_date,training_time,amount_agorot,booking_status,payment_status,payment_reference,payment_reported_at,terms_version,created_at,open_mat_notifications(kind,state,sent_at,last_error_code)",{count:"exact"}).order("created_at",{ascending:false}).range((page-1)*pageSize,page*pageSize-1);
+      let query=s.from("open_mat_registrations").select("reference,full_name,phone,email,training_date,training_time,amount_agorot,booking_status,payment_status,payment_reference,payment_reported_at,payment_verified_at,terms_version,created_at,updated_at,open_mat_notifications(kind,state,sent_at,last_error_code)",{count:"exact"}).order("created_at",{ascending:false}).order("reference",{ascending:false}).range((page-1)*pageSize,page*pageSize-1);
       if(q)query=query.or("full_name.ilike.%"+q+"%,phone.ilike.%"+q+"%,email.ilike.%"+q+"%,reference.ilike.%"+q+"%");
       if(date)query=query.eq("training_date",date);
       const {data,error,count}=await query;if(error)throw error;
       return out({ok:true,registrations:data||[],page,page_size:pageSize,total:count||0,total_pages:Math.max(1,Math.ceil((count||0)/pageSize))});
+    }
+
+    if(input.action==="admin_open_mat_update") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      if(!/^OM-[A-F0-9]{12}$/.test(input.reference||"")||!/^\d{4}-\d{2}-\d{2}T/.test(input.expected_updated_at||"")||!Number.isFinite(Date.parse(input.expected_updated_at)))return out({ok:false,code:"INVALID"},400);
+      const {data,error}=await s.rpc("admin_update_open_mat",{
+        p_reference:input.reference,p_actor:a.id,p_expected_updated_at:input.expected_updated_at,
+        p_payment_status:input.payment_status,p_booking_status:input.booking_status,
+        p_payment_confirmed:input.payment_confirmed===true,p_note:String(input.note||"").trim()
+      });
+      if(error)throw error;
+      const codes:Record<string,number>={UNAUTHORIZED:401,NOT_FOUND:404,STALE_RECORD:409,PAYMENT_EVIDENCE_REQUIRED:400,PAYMENT_REQUIRED:400,INVALID:400};
+      return out(data||{ok:false,code:"SERVICE_UNAVAILABLE"},data?.ok?200:codes[data?.code]||503);
     }
 
     if(input.action==="admin_grade_exam_list") {
@@ -523,12 +538,15 @@ Deno.serve(async (req:Request)=>{
 
     if(input.action==="admin_attention") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
-      const [{data:alerts},{data:health}]=await Promise.all([
+      const [alertsResult,healthResult]=await Promise.all([
         s.from("team_payment_operational_alerts")
           .select("id,alert_key,alert_type,severity,request_id,provider_event_id,title,details,status,first_seen_at,last_seen_at")
           .eq("status","open").order("severity",{ascending:true}).order("last_seen_at",{ascending:false}).limit(200),
         s.from("team_payment_system_health").select("last_maintenance_at,last_maintenance_status,last_maintenance_error,updated_at").eq("id",1).maybeSingle()
       ]);
+      if(alertsResult.error)throw alertsResult.error;
+      if(healthResult.error)throw healthResult.error;
+      const alerts=alertsResult.data,health=healthResult.data;
       const stale=!health?.last_maintenance_at || (Date.now()-new Date(health.last_maintenance_at).getTime()>2.5*3600000);
       return out({ok:true,attention:{alerts:alerts||[],health:health||null,health_stale:stale,count:(alerts||[]).length+(stale?1:0)}});
     }
