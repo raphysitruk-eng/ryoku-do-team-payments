@@ -4,6 +4,7 @@ import vm from 'node:vm';
 import { test } from 'node:test';
 
 const source = await readFile(new URL('../portal.js', import.meta.url), 'utf8');
+const gaugeSource = await readFile(new URL('../belt-gauge.js', import.meta.url), 'utf8');
 class Element {
   constructor(){this.innerHTML='';this.textContent='';this.style={};this.attrs={};this.classes=new Set(['hidden']);this.classList={add:x=>this.classes.add(x),remove:x=>this.classes.delete(x)};}
   setAttribute(k,v){this.attrs[k]=v;}
@@ -15,10 +16,29 @@ function fixture(resolveQuery){
   const elements=new Map(),get=id=>{if(!elements.has(id))elements.set(id,new Element());return elements.get(id);};
   const sb={auth:{getSession:async()=>({data:{session:null}}),signOut:async()=>{},getUser:async()=>({data:{user:{id:'parent'}}})},from(table){let id='';const chain=new Proxy({}, {get(_,key){if(key==='then')return (resolve,reject)=>Promise.resolve().then(()=>resolveQuery(table,id)).then(resolve,reject);return (...args)=>{if(key==='eq'&&args[0]==='child_id')id=args[1];return chain;};}});return chain;}};
   const context=vm.createContext({window:{supabase:{createClient:()=>sb},sessionStorage:{}},document:{getElementById:get,querySelectorAll:()=>[]},URL,Date,Map,Promise,console});
+  vm.runInContext(gaugeSource,context);
   vm.runInContext(source,context);
   vm.runInContext('profile={id:"parent"};children=[{id:"first",first_name:"First",last_name:"Child"},{id:"second",first_name:"Second",last_name:"Child"}];portalCall=async()=>({payments:[]});',context);
   return {context,get,sb};
 }
+test('belt gauges use the saved percentage and current belt color',async()=>{
+  for(const [rank,color,percent] of [['לבנה','white',0],['צהובה','yellow',17],['כתומה','orange',33],['ירוקה','green',50],['כחולה','blue',67],['חומה','brown',83],['שחורה','black',100]]){
+    const f=fixture(table=>table==='student_progress'?{data:{progress_percent:percent}}:{data:[]});
+    f.context.testRank=rank;
+    vm.runInContext('children[0].current_rank=testRank',f.context);
+    await vm.runInContext('selectChild("first")',f.context);
+    const html=f.get('progressFill').innerHTML;
+    assert.match(html,new RegExp(`data-belt="${color}"`));
+    assert.match(html,new RegExp(`aria-valuenow="${percent}"`));
+    assert.equal(f.get('progressPercent').textContent,`${percent}%`);
+  }
+});
+test('unavailable progress has no zero-percent gauge or pointer',async()=>{
+  const f=fixture(table=>table==='student_progress'?{data:null,error:{message:'offline'}}:{data:[]});
+  await vm.runInContext('selectChild("first")',f.context);
+  assert.equal(f.get('progressPercent').textContent,'—');
+  assert.doesNotMatch(f.get('progressFill').innerHTML,/aria-valuenow|class="belt-gauge__needle"|>0%/);
+});
 test('a late child response cannot replace the selected child or its billing view',async()=>{
   let release;const slow=new Promise(resolve=>release=resolve);
   const f=fixture((table,id)=>table==='student_progress'?(id==='first'?slow:{data:{monthly_goal:'Second goal'}}):{data:[]});
@@ -67,3 +87,4 @@ test('portal authentication can use a temporary tab session when storage is bloc
   vm.runInContext('portalStorage.removeItem("fixture-session")',f.context);
   assert.equal(vm.runInContext('portalStorage.getItem("fixture-session")',f.context),null);
 });
+
