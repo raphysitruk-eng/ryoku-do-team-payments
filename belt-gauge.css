@@ -1,0 +1,14 @@
+.belt-gauge{--belt-color:#8b929d;--gauge-ink:#1c2430;--gauge-muted:#647080;--gauge-rim:#d4d9e0;--gauge-needle-rim:#99a3af;display:block;width:min(100%,270px);margin:10px auto 16px;color:var(--gauge-ink);text-align:center;font-family:inherit;line-height:1.3}
+.belt-gauge[data-belt="white"]{--belt-color:#f9f8f4}.belt-gauge[data-belt="yellow"]{--belt-color:#f2c933}.belt-gauge[data-belt="orange"]{--belt-color:#ee8628}.belt-gauge[data-belt="green"]{--belt-color:#2e9866}.belt-gauge[data-belt="blue"]{--belt-color:#397fd1}.belt-gauge[data-belt="brown"]{--belt-color:#946039}.belt-gauge[data-belt="black"]{--belt-color:#171b21}
+.belt-gauge--dark{--gauge-ink:#f8f8fa;--gauge-muted:#aeb5c0;--gauge-rim:#79818d;--gauge-needle-rim:#c2c8d1}
+.belt-gauge__dial{display:block;width:100%;height:auto;overflow:visible;direction:ltr}
+.belt-gauge__rim,.belt-gauge__arc{fill:none;stroke-linecap:round}.belt-gauge__rim{stroke:var(--gauge-rim);stroke-width:20}.belt-gauge__arc{stroke:var(--belt-color);stroke-width:14}
+.belt-gauge__tick{stroke:var(--gauge-muted);stroke-width:1.2;opacity:.45}.belt-gauge__tick--major{stroke-width:2;opacity:.85}
+.belt-gauge__scale{fill:var(--gauge-muted);font-size:12px;font-family:Arial,sans-serif;text-anchor:middle}
+.belt-gauge__needle-outline,.belt-gauge__needle{stroke-linecap:round}.belt-gauge__needle-outline{stroke:var(--gauge-needle-rim);stroke-width:7}.belt-gauge__needle{stroke:var(--belt-color);stroke-width:4}.belt-gauge__hub{fill:var(--belt-color);stroke:var(--gauge-rim);stroke-width:2}
+.belt-gauge__value{fill:var(--gauge-ink);font-family:"Barlow Condensed",Arial,sans-serif;font-weight:800;font-size:36px;text-anchor:middle;direction:ltr;unicode-bidi:isolate}
+.belt-gauge .belt-gauge__rank{display:flex;align-items:center;justify-content:center;gap:7px;font-size:14px;font-weight:700;color:var(--gauge-ink);margin-top:9px;overflow-wrap:anywhere}
+.belt-gauge__swatch{display:inline-block;flex:none;width:13px;height:13px;border-radius:4px;background:var(--belt-color);border:1px solid var(--gauge-rim)}
+.belt-gauge--empty .belt-gauge__arc,.belt-gauge--empty .belt-gauge__hub{opacity:.35}
+.belt-gauge--compact{width:116px;margin:0 auto 4px}.belt-gauge--compact .belt-gauge__scale{display:none}.belt-gauge--compact .belt-gauge__tick:not(.belt-gauge__tick--major){display:none}.belt-gauge--compact .belt-gauge__value{font-size:44px}.belt-gauge--compact .belt-gauge__rank{font-size:12px;margin-top:2px;gap:5px}.belt-gauge--compact .belt-gauge__swatch{width:10px;height:10px;border-radius:3px}
+.belt-gauge-preview .belt-gauge{max-width:220px}.belt-gauge-cell{text-align:center;min-width:138px}.belt-gauge-next{display:block;margin-top:5px;font-size:12px;color:#647080;text-align:center}.member-portal .belt-gauge-next{color:#aeb5c0}

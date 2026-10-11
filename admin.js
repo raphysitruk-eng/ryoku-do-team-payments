@@ -252,7 +252,7 @@ function renderStudents(){
   body.innerHTML=visible.length?visible.map(s=>{
     const p=s.parent||{},g=s.progress||{},pay=s.payment||{};
     const name=(String(s.first_name||"")+" "+String(s.last_name||"")).trim();
-    return "<tr><td><b>"+esc(name)+"</b>"+(!s.active?"<br><span class='muted'>לא פעיל</span>":"")+"</td><td>"+esc([s.branch,s.group_name].filter(Boolean).join(" / ")||"—")+"</td><td>"+esc(p.full_name||s.mother_name||s.father_name||"—")+"<br><span class='muted'>"+esc(s.contact_phone||p.phone||"")+"</span></td><td>"+esc(s.parent_id?approvalLabel(p.approval_status):"ממתין לפתיחת חשבון")+(Array.isArray(s.data_review)&&s.data_review.length?"<br><span class='muted'>יש פרטים לאימות</span>":"")+"</td><td>"+esc(s.current_rank||"—")+" → "+esc(s.next_rank||"—")+"<br><span class='muted' title='התקדמות במסלול מלבנה לשחורה'>"+Number(g.progress_percent||0)+"%</span></td><td>"+esc(paymentBadge(pay.payment_status,pay.request_status))+"</td><td><button class='btn soft' data-student='"+esc(s.id)+"'>ניהול אזור אישי</button></td></tr>"
+    return "<tr><td><b>"+esc(name)+"</b>"+(!s.active?"<br><span class='muted'>לא פעיל</span>":"")+"</td><td>"+esc([s.branch,s.group_name].filter(Boolean).join(" / ")||"—")+"</td><td>"+esc(p.full_name||s.mother_name||s.father_name||"—")+"<br><span class='muted'>"+esc(s.contact_phone||p.phone||"")+"</span></td><td>"+esc(s.parent_id?approvalLabel(p.approval_status):"ממתין לפתיחת חשבון")+(Array.isArray(s.data_review)&&s.data_review.length?"<br><span class='muted'>יש פרטים לאימות</span>":"")+"</td><td class='belt-gauge-cell'>"+window.RyokuBeltGauge.markup({percent:g.progress_percent,rank:s.current_rank,compact:true})+(s.next_rank?"<span class='belt-gauge-next'>הדרגה הבאה: "+esc(s.next_rank)+"</span>":"")+"</td><td>"+esc(paymentBadge(pay.payment_status,pay.request_status))+"</td><td><button class='btn soft' data-student='"+esc(s.id)+"'>ניהול אזור אישי</button></td></tr>"
   }).join(""):"<tr><td colspan='7' class='muted'>"+(term?"לא נמצאו חניכים שמתאימים לחיפוש.":"עדיין אין חניכים במאגר האזור האישי.")+"</td></tr>";
   document.querySelectorAll("[data-student]").forEach(b=>b.onclick=()=>openStudent(b.dataset.student));
 }
@@ -283,7 +283,7 @@ async function openStudent(id){
   for(const key of ["sParentName","sParentEmail","sParentStatus","studentResetPassword"])$(key).disabled=!s.parent_id;
   $("studentImportReview").innerHTML=renderRosterReview(s);
   $("sBranch").value=s.branch||"";$("sGroup").value=s.group_name||"";$("sCurrentRank").value=s.current_rank||"";$("sNextRank").value=s.next_rank||"";$("sJoinedOn").value=s.joined_on||"";$("sActive").checked=!!s.active;
-  $("sProgress").value=Number(g.progress_percent||0);$("sMonthlyGoal").value=g.monthly_goal||"";$("sCoachFeedback").value=g.coach_feedback||"";$("sPersonalPlan").value=g.personal_plan||"";$("sNextRankMaterial").value=g.next_rank_material||"";syncBeltProgressPreview();
+  $("sProgress").value=g.progress_percent??"";window.RyokuBeltGauge.render($("sProgressGauge"),{percent:g.progress_percent,rank:s.current_rank});$("sMonthlyGoal").value=g.monthly_goal||"";$("sCoachFeedback").value=g.coach_feedback||"";$("sPersonalPlan").value=g.personal_plan||"";$("sNextRankMaterial").value=g.next_rank_material||"";syncBeltProgressPreview();
   $("sParentName").value=p.full_name||"";$("sParentEmail").value=p.email||"";$("sParentStatus").value=p.approval_status||"pending";
   const co=(x.consents||[])[0]||null,att=x.attendance||[],ach=x.achievements||[],bill=x.billing||[],req=x.requests||[];
   $("studentMore").innerHTML="<section><h3>כל תשובות שאלון ההרשמה</h3>"+renderConsentFull(co)+"</section>"+
@@ -369,21 +369,23 @@ let beltProgressPreviewVersion=0,beltProgressPreviewTimer;
 async function syncBeltProgressPreview(){
   const version=++beltProgressPreviewVersion,rank=$("sCurrentRank").value.trim(),childId=currentStudentDetail?.child?.id;
   const hint=$("sProgressHint");
-  if(!rank){$("sProgress").value="";hint.textContent="יש לבחור דרגת חגורה לחישוב ההתקדמות.";return;}
+  if(!rank){$("sProgress").value="";window.RyokuBeltGauge.render($("sProgressGauge"),{percent:null,rank});hint.textContent="יש לבחור דרגת חגורה לחישוב ההתקדמות.";return;}
   try{
     const {data,error}=await sb.rpc("belt_progress_percent",{rank});
     if(version!==beltProgressPreviewVersion||currentStudentDetail?.child?.id!==childId||$("sCurrentRank").value.trim()!==rank)return;
     if(error)throw error;
     $("sProgress").value=data===null?"":Number(data);
+    window.RyokuBeltGauge.render($("sProgressGauge"),{percent:data,rank});
     hint.textContent=data===null?"דרגת החגורה טרם זוהתה. אפשר להשתמש בשם הצבע בעברית או באנגלית.":"מחושב לפי החגורה הנוכחית · לבנה 0% · שחורה 100%.";
   }catch{
-    if(version===beltProgressPreviewVersion)hint.textContent="מחושב אוטומטית לפי החגורה לאחר השמירה.";
+    if(version===beltProgressPreviewVersion){window.RyokuBeltGauge.render($("sProgressGauge"),{percent:null,rank});hint.textContent="מחושב אוטומטית לפי החגורה לאחר השמירה.";}
   }
 }
 $("sCurrentRank").addEventListener("input",()=>{
   ++beltProgressPreviewVersion;
   clearTimeout(beltProgressPreviewTimer);
   $("sProgress").value="";
+  window.RyokuBeltGauge.render($("sProgressGauge"),{percent:null,rank:$("sCurrentRank").value,state:"loading"});
   $("sProgressHint").textContent="מחשב לפי החגורה…";
   beltProgressPreviewTimer=setTimeout(()=>syncBeltProgressPreview(),250);
 });
