@@ -1,6 +1,6 @@
 import 'jsr:@supabase/functions-js/edge-runtime.d.ts';
 import { createClient } from 'npm:@supabase/supabase-js@2.49.8';
-import { validateGradeExam, gradeExamUuid } from './grade-exam-model.js';
+import { validateGradeExam, gradeExamUuid, gradeContactIdentity } from './grade-exam-model.js';
 import auth from './auth.json' with { type: 'json' };
 
 const out = (data: unknown, status = 200) => new Response(JSON.stringify(data), { status, headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' } });
@@ -28,7 +28,7 @@ Deno.serve(async (req: Request) => {
     if (input.action === 'register') {
       const validation = validateGradeExam(input.payload || {});
       if (!validation.valid || !/^[a-f0-9]{64}$/.test(input.source_hash || '')) return out({ ok: false, code: 'INVALID' }, 400);
-      result = await s.rpc('register_grade_exam', { p_payload: validation.payload, p_key_hash: keyHash, p_payload_hash: await digest(JSON.stringify(validation.payload)), p_identity_hash: await digest('grade-exam-identity:' + token + ':' + validation.payload.national_id), p_source_hash: input.source_hash });
+      result = await s.rpc('register_grade_exam_contact', { p_payload: validation.payload, p_key_hash: keyHash, p_payload_hash: await digest(JSON.stringify(validation.payload)), p_identity_hash: await digest('grade-exam-identity:' + token + ':' + gradeContactIdentity(validation.payload)), p_source_hash: input.source_hash });
     } else if (input.action === 'report') {
       if (!/^GE-[A-F0-9]{12}$/.test(input.reference || '') || typeof input.payment_reference !== 'string' || input.payment_reference.trim().length < 2 || input.payment_reference.trim().length > 100) return out({ ok: false, code: 'INVALID' }, 400);
       result = await s.rpc('report_grade_exam_payment', { p_reference: input.reference, p_key_hash: keyHash, p_payment_reference: input.payment_reference.trim() });
