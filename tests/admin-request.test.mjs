@@ -44,7 +44,7 @@ class Element {
 }
 
 function frontend(responseForCreate) {
-  const elements = new Map(), calls = [], alerts = [];
+  const elements = new Map(), calls = [], alerts = [], headers = [];
   const document = {
     getElementById(id) { if (!elements.has(id)) elements.set(id, new Element(id, document)); return elements.get(id); },
     createElement() { return new Element('', document); }, querySelectorAll() { return []; }, activeElement: null
@@ -59,7 +59,7 @@ function frontend(responseForCreate) {
     supabase: { createClient: () => ({ auth: { getSession: async () => ({ data: { session: null } }), onAuthStateChange() {} } }) },
     __settings: structuredClone(settings), __loads: 0,
     fetch: async (_url, options) => {
-      const body = JSON.parse(options.body); calls.push(body);
+      const body = JSON.parse(options.body); calls.push(body); headers.push(options.headers);
       let response = { status: 200, body: { ok: true } };
       if (body.action === 'admin_people') response.body.people = structuredClone(people);
       if (body.action === 'admin_create') {
@@ -72,8 +72,8 @@ function frontend(responseForCreate) {
   });
   context.window = context;
   vm.runInContext(adminSource, context);
-  vm.runInContext('settingsCfg=__settings; load=async()=>{__loads++;};', context);
-  return { context, el, calls, alerts, document };
+  vm.runInContext('settingsCfg=__settings; adminReady=true; jwt="admin-test-session"; load=async()=>{__loads++;};', context);
+  return { context, el, calls, alerts, headers, document };
 }
 function fillManual(h, changes = {}) {
   const values = { cStudent: 'חניך לדוגמה', cParent: 'הורה לדוגמה', cPhone: '0500000001', cEmail: 'parent@example.com', cBranch: 'הרצוג', cGroup: 'נבחרת', ...changes };
@@ -252,6 +252,8 @@ test('open-mat listing filters dates and omits IDs, birth dates, mail bodies and
 test('open-mat date and search controls call only the authenticated reservation API',async()=>{
   const h=frontend();h.el('openMatSearch').value='בדיקה';h.el('openMatDate').value='2026-10-12';await h.el('openMatRefresh').onclick();
   assert.deepEqual(h.calls.at(-1),{action:'admin_open_mat_list',page:1,page_size:50,search:'בדיקה',training_date:'2026-10-12'});
+  assert.equal(h.headers.at(-1).authorization,'Bearer admin-test-session');
   assert.ok(h.el('openMatRows').textContent.includes('אין הזמנות'));
 });
+
 
