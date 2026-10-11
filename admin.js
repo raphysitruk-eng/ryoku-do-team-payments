@@ -252,7 +252,7 @@ function renderStudents(){
   body.innerHTML=visible.length?visible.map(s=>{
     const p=s.parent||{},g=s.progress||{},pay=s.payment||{};
     const name=(String(s.first_name||"")+" "+String(s.last_name||"")).trim();
-    return "<tr><td><b>"+esc(name)+"</b>"+(!s.active?"<br><span class='muted'>לא פעיל</span>":"")+"</td><td>"+esc([s.branch,s.group_name].filter(Boolean).join(" / ")||"—")+"</td><td>"+esc(p.full_name||s.mother_name||s.father_name||"—")+"<br><span class='muted'>"+esc(s.contact_phone||p.phone||"")+"</span></td><td>"+esc(s.parent_id?approvalLabel(p.approval_status):"ממתין לפתיחת חשבון")+(Array.isArray(s.data_review)&&s.data_review.length?"<br><span class='muted'>יש פרטים לאימות</span>":"")+"</td><td>"+esc(s.current_rank||"—")+" → "+esc(s.next_rank||"—")+"<br><span class='muted'>"+Number(g.progress_percent||0)+"%</span></td><td>"+esc(paymentBadge(pay.payment_status,pay.request_status))+"</td><td><button class='btn soft' data-student='"+esc(s.id)+"'>ניהול אזור אישי</button></td></tr>"
+    return "<tr><td><b>"+esc(name)+"</b>"+(!s.active?"<br><span class='muted'>לא פעיל</span>":"")+"</td><td>"+esc([s.branch,s.group_name].filter(Boolean).join(" / ")||"—")+"</td><td>"+esc(p.full_name||s.mother_name||s.father_name||"—")+"<br><span class='muted'>"+esc(s.contact_phone||p.phone||"")+"</span></td><td>"+esc(s.parent_id?approvalLabel(p.approval_status):"ממתין לפתיחת חשבון")+(Array.isArray(s.data_review)&&s.data_review.length?"<br><span class='muted'>יש פרטים לאימות</span>":"")+"</td><td>"+esc(s.current_rank||"—")+" → "+esc(s.next_rank||"—")+"<br><span class='muted' title='התקדמות במסלול מלבנה לשחורה'>"+Number(g.progress_percent||0)+"%</span></td><td>"+esc(paymentBadge(pay.payment_status,pay.request_status))+"</td><td><button class='btn soft' data-student='"+esc(s.id)+"'>ניהול אזור אישי</button></td></tr>"
   }).join(""):"<tr><td colspan='7' class='muted'>"+(term?"לא נמצאו חניכים שמתאימים לחיפוש.":"עדיין אין חניכים במאגר האזור האישי.")+"</td></tr>";
   document.querySelectorAll("[data-student]").forEach(b=>b.onclick=()=>openStudent(b.dataset.student));
 }
@@ -283,7 +283,7 @@ async function openStudent(id){
   for(const key of ["sParentName","sParentEmail","sParentStatus","studentResetPassword"])$(key).disabled=!s.parent_id;
   $("studentImportReview").innerHTML=renderRosterReview(s);
   $("sBranch").value=s.branch||"";$("sGroup").value=s.group_name||"";$("sCurrentRank").value=s.current_rank||"";$("sNextRank").value=s.next_rank||"";$("sJoinedOn").value=s.joined_on||"";$("sActive").checked=!!s.active;
-  $("sProgress").value=Number(g.progress_percent||0);$("sMonthlyGoal").value=g.monthly_goal||"";$("sCoachFeedback").value=g.coach_feedback||"";$("sPersonalPlan").value=g.personal_plan||"";$("sNextRankMaterial").value=g.next_rank_material||"";
+  $("sProgress").value=Number(g.progress_percent||0);$("sMonthlyGoal").value=g.monthly_goal||"";$("sCoachFeedback").value=g.coach_feedback||"";$("sPersonalPlan").value=g.personal_plan||"";$("sNextRankMaterial").value=g.next_rank_material||"";syncBeltProgressPreview();
   $("sParentName").value=p.full_name||"";$("sParentEmail").value=p.email||"";$("sParentStatus").value=p.approval_status||"pending";
   const co=(x.consents||[])[0]||null,att=x.attendance||[],ach=x.achievements||[],bill=x.billing||[],req=x.requests||[];
   $("studentMore").innerHTML="<section><h3>כל תשובות שאלון ההרשמה</h3>"+renderConsentFull(co)+"</section>"+
@@ -295,7 +295,7 @@ async function openStudent(id){
 $("studentSave").onclick=async()=>{
   if(!currentStudentDetail?.child?.id)return;const b=$("studentSave");b.disabled=true;$("studentSaveMsg").textContent="שומר…";
   try{
-    await call({action:"admin_student_update",child_id:currentStudentDetail.child.id,child:{student_id_number:$("sStudentId").value.trim(),birth_date:$("sBirthDate").value||null,mother_name:$("sMotherName").value.trim(),father_name:$("sFatherName").value.trim(),contact_phone:$("sContactPhone").value.trim(),contact_email:$("sContactEmail").value.trim(),branch:$("sBranch").value.trim(),group_name:$("sGroup").value.trim(),current_rank:$("sCurrentRank").value.trim(),next_rank:$("sNextRank").value.trim(),joined_on:$("sJoinedOn").value||null,active:$("sActive").checked},progress:{progress_percent:Number($("sProgress").value||0),monthly_goal:$("sMonthlyGoal").value.trim(),coach_feedback:$("sCoachFeedback").value.trim(),personal_plan:$("sPersonalPlan").value.trim(),next_rank_material:$("sNextRankMaterial").value.trim()},parent:{full_name:$("sParentName").value.trim(),email:$("sParentEmail").value.trim(),approval_status:$("sParentStatus").value}});
+    await call({action:"admin_student_update",child_id:currentStudentDetail.child.id,child:{student_id_number:$("sStudentId").value.trim(),birth_date:$("sBirthDate").value||null,mother_name:$("sMotherName").value.trim(),father_name:$("sFatherName").value.trim(),contact_phone:$("sContactPhone").value.trim(),contact_email:$("sContactEmail").value.trim(),branch:$("sBranch").value.trim(),group_name:$("sGroup").value.trim(),current_rank:$("sCurrentRank").value.trim(),next_rank:$("sNextRank").value.trim(),joined_on:$("sJoinedOn").value||null,active:$("sActive").checked},progress:{monthly_goal:$("sMonthlyGoal").value.trim(),coach_feedback:$("sCoachFeedback").value.trim(),personal_plan:$("sPersonalPlan").value.trim(),next_rank_material:$("sNextRankMaterial").value.trim()},parent:{full_name:$("sParentName").value.trim(),email:$("sParentEmail").value.trim(),approval_status:$("sParentStatus").value}});
     $("studentSaveMsg").innerHTML="<div class='info'>נשמר בהצלחה.</div>";await loadStudents();await openStudent(currentStudentDetail.child.id);
   }catch(e){$("studentSaveMsg").innerHTML="<div class='err'>לא ניתן לשמור את האזור האישי.</div>"}finally{b.disabled=false}
 };
@@ -363,3 +363,27 @@ $("gradeEditForm").onsubmit=async event=>{
   catch(error){const labels={STALE_RECORD:"הבקשה עודכנה בינתיים. סגרו את החלון, רעננו ובדקו את המידע העדכני.",PAYMENT_EVIDENCE_REQUIRED:"יש לאשר קבלת תשלום בפועל.",PAYMENT_REQUIRED:"אישור השתתפות מחייב תשלום מאומת.",UNAUTHORIZED:"החיבור פג או שאין הרשאה. התחברו מחדש.",INVALID:"בדקו את השדות וכתבו הערת בדיקה של 3–500 תווים."};$("gradeSaveMsg").textContent=labels[error.code]||"לא ניתן לשמור כרגע. נסו שוב.";}
   finally{$("gradeSave").disabled=false;}
 };
+
+
+let beltProgressPreviewVersion=0,beltProgressPreviewTimer;
+async function syncBeltProgressPreview(){
+  const version=++beltProgressPreviewVersion,rank=$("sCurrentRank").value.trim(),childId=currentStudentDetail?.child?.id;
+  const hint=$("sProgressHint");
+  if(!rank){$("sProgress").value="";hint.textContent="יש לבחור דרגת חגורה לחישוב ההתקדמות.";return;}
+  try{
+    const {data,error}=await sb.rpc("belt_progress_percent",{rank});
+    if(version!==beltProgressPreviewVersion||currentStudentDetail?.child?.id!==childId||$("sCurrentRank").value.trim()!==rank)return;
+    if(error)throw error;
+    $("sProgress").value=data===null?"":Number(data);
+    hint.textContent=data===null?"דרגת החגורה טרם זוהתה. אפשר להשתמש בשם הצבע בעברית או באנגלית.":"מחושב לפי החגורה הנוכחית · לבנה 0% · שחורה 100%.";
+  }catch{
+    if(version===beltProgressPreviewVersion)hint.textContent="מחושב אוטומטית לפי החגורה לאחר השמירה.";
+  }
+}
+$("sCurrentRank").addEventListener("input",()=>{
+  ++beltProgressPreviewVersion;
+  clearTimeout(beltProgressPreviewTimer);
+  $("sProgress").value="";
+  $("sProgressHint").textContent="מחשב לפי החגורה…";
+  beltProgressPreviewTimer=setTimeout(()=>syncBeltProgressPreview(),250);
+});
