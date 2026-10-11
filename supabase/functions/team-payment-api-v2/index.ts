@@ -302,6 +302,28 @@ Deno.serve(async (req:Request)=>{
       return out({ok:true,registrations:data||[],page,page_size:pageSize,total:count||0,total_pages:Math.max(1,Math.ceil((count||0)/pageSize))});
     }
 
+    if(input.action==="admin_grade_exam_list") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      const rawPage=Number(input.page||1),rawSize=Number(input.page_size||50);
+      const page=Number.isFinite(rawPage)?Math.min(10000,Math.max(1,Math.floor(rawPage))):1;
+      const size=Number.isFinite(rawSize)?Math.min(100,Math.max(10,Math.floor(rawSize))):50;
+      const q=String(input.search||"").trim().replace(/[^\p{L}\p{N}\s@.+\-]/gu," ").replace(/\s+/g," ").slice(0,80);
+      const allowed:Record<string,string[]>={branch:["herzog","agamim","waldberg"],group_name:["beginners","advanced","youth","adults"],current_rank:["white","yellow","orange","green","blue"],payment_status:["awaiting_payment","reported_unverified","verified"],registration_status:["pending","approved","cancelled"]};
+      let query=s.from("grade_exam_registrations").select("id,reference,full_name,registrant_kind,contact_name,contact_phone,contact_email,group_name,branch,current_rank,exam_season,amount_agorot,payment_method,payment_status,payment_reference,payment_reported_at,payment_verified_at,registration_status,created_at,updated_at",{count:"exact"}).order("created_at",{ascending:false}).order("id",{ascending:false}).range((page-1)*size,page*size-1);
+      if(q)query=query.or("full_name.ilike.%"+q+"%,contact_name.ilike.%"+q+"%,contact_phone.ilike.%"+q+"%,contact_email.ilike.%"+q+"%,reference.ilike.%"+q+"%");
+      for(const [field,values] of Object.entries(allowed)){if(input[field]){if(!values.includes(input[field]))return out({ok:false,code:"INVALID_FILTER"},400);query=query.eq(field,input[field]);}}
+      const {data,error,count}=await query;if(error)throw error;
+      return out({ok:true,registrations:data||[],page,page_size:size,total:count||0,total_pages:Math.max(1,Math.ceil((count||0)/size))});
+    }
+    if(input.action==="admin_grade_exam_update") {
+      const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
+      if(!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(input.id||"")||!/^\d{4}-\d{2}-\d{2}T/.test(input.expected_updated_at||"")||!Number.isFinite(Date.parse(input.expected_updated_at)))return out({ok:false,code:"INVALID"},400);
+      const {data,error}=await s.rpc("admin_update_grade_exam",{p_id:input.id,p_actor:a.id,p_expected_updated_at:input.expected_updated_at,p_payment_status:input.payment_status,p_registration_status:input.registration_status,p_payment_confirmed:input.payment_confirmed===true,p_note:String(input.note||"").trim()});
+      if(error)throw error;
+      const codes:Record<string,number>={UNAUTHORIZED:401,NOT_FOUND:404,STALE_RECORD:409,PAYMENT_EVIDENCE_REQUIRED:400,PAYMENT_REQUIRED:400,INVALID:400};
+      return out(data||{ok:false,code:"TEMPORARY_FAILURE"},data?.ok?200:codes[data?.code]||503);
+    }
+
     if(input.action==="admin_list") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
       const page=Math.max(1,Math.floor(Number(input.page||1)));
