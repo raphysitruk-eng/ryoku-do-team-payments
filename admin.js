@@ -245,7 +245,7 @@ function renderStudents(){
   body.innerHTML=students.length?students.map(s=>{
     const p=s.parent||{},g=s.progress||{},pay=s.payment||{};
     const name=(String(s.first_name||"")+" "+String(s.last_name||"")).trim();
-    return "<tr><td><b>"+esc(name)+"</b>"+(!s.active?"<br><span class='muted'>לא פעיל</span>":"")+"</td><td>"+esc([s.branch,s.group_name].filter(Boolean).join(" / ")||"—")+"</td><td>"+esc(p.full_name||"—")+"<br><span class='muted'>"+esc(p.phone||"")+"</span></td><td>"+esc(approvalLabel(p.approval_status))+"</td><td>"+esc(s.current_rank||"—")+" → "+esc(s.next_rank||"—")+"<br><span class='muted'>"+Number(g.progress_percent||0)+"%</span></td><td>"+esc(paymentBadge(pay.payment_status,pay.request_status))+"</td><td><button class='btn soft' data-student='"+esc(s.id)+"'>ניהול אזור אישי</button></td></tr>"
+    return "<tr><td><b>"+esc(name)+"</b>"+(!s.active?"<br><span class='muted'>לא פעיל</span>":"")+"</td><td>"+esc([s.branch,s.group_name].filter(Boolean).join(" / ")||"—")+"</td><td>"+esc(p.full_name||s.mother_name||s.father_name||"—")+"<br><span class='muted'>"+esc(s.contact_phone||p.phone||"")+"</span></td><td>"+esc(s.parent_id?approvalLabel(p.approval_status):"ממתין לפתיחת חשבון")+(Array.isArray(s.data_review)&&s.data_review.length?"<br><span class='muted'>יש פרטים לאימות</span>":"")+"</td><td>"+esc(s.current_rank||"—")+" → "+esc(s.next_rank||"—")+"<br><span class='muted'>"+Number(g.progress_percent||0)+"%</span></td><td>"+esc(paymentBadge(pay.payment_status,pay.request_status))+"</td><td><button class='btn soft' data-student='"+esc(s.id)+"'>ניהול אזור אישי</button></td></tr>"
   }).join(""):"<tr><td colspan='7' class='muted'>עדיין אין חניכים במאגר האזור האישי.</td></tr>";
   document.querySelectorAll("[data-student]").forEach(b=>b.onclick=()=>openStudent(b.dataset.student));
 }
@@ -261,12 +261,20 @@ function renderConsentFull(co){
     "</section><section><h4>אישורים</h4>"+row("צילום ופרסום",co.photo_permission)+row("תקנון נבחרת",co.team_rules_accepted)+row("תנאי תשלום",co.payment_terms_accepted)+row("שינויים דרך הנהלה בלבד",co.admin_only_changes_accepted)+row("אין ביטול אוטומטי",co.no_auto_cancel_accepted)+row("פרטיות",co.privacy_accepted)+row("אפוטרופוס",co.guardian_confirmed)+row("שם לחתימה",co.signature_name)+
     "</section><section><h4>תיעוד</h4>"+row("גרסת תקנון",co.terms_version)+row("גרסת פרטיות",co.privacy_version)+row("מועד אישור",co.accepted_at)+"</section></div>";
 }
+function renderRosterReview(s){
+  const labels={student_id_number:"תעודת זהות",birth_date:"תאריך לידה",contact_email:"אימייל קשר"};
+  const items=Array.isArray(s.data_review)?s.data_review:[];
+  return (s.roster_source?"<p class='muted'>מקור הפרטים: "+esc(s.roster_source)+"</p>":"")+(items.length?"<div class='err' style='background:#fff8e5;color:#4d3b12'><b>פרטים לאימות מול ההורה</b>"+items.map(v=>"<p><b>"+esc(labels[v.field]||v.field)+"</b><br>ברשימה: <span dir='auto'>"+esc(v.imported_value)+"</span><br>בטופס ההרשמה: <span dir='auto'>"+esc(v.form_value)+"</span></p>").join("")+"<p>הטופס החתום נשמר כפי שהוגש.</p></div>":"");
+}
 async function openStudent(id){
   $("studentMore").innerHTML="<p class='muted'>טוען נתונים…</p>";$("studentSaveMsg").textContent="";$("studentPasswordResult").classList.add("hidden");$("studentPasswordResult").innerHTML="";$("studentModal").classList.remove("hidden");
   const x=await call({action:"admin_student_detail",child_id:id});currentStudentDetail=x;
   const s=x.child||{},p=x.parent||{},g=x.progress||{};
   $("studentModalTitle").textContent="אזור אישי — "+((s.first_name||"")+" "+(s.last_name||"")).trim();
-  $("studentAccountMeta").textContent=[p.full_name,p.phone,p.email].filter(Boolean).join(" · ");
+  $("studentAccountMeta").textContent=[p.full_name||s.mother_name||s.father_name,s.contact_phone||p.phone,s.contact_email||p.email].filter(Boolean).join(" · ")+(!s.parent_id?" · ממתין לפתיחת חשבון הורה":"");
+  for(const [id,key] of [["sStudentId","student_id_number"],["sBirthDate","birth_date"],["sMotherName","mother_name"],["sFatherName","father_name"],["sContactPhone","contact_phone"],["sContactEmail","contact_email"]])$(id).value=s[key]||"";
+  for(const key of ["sParentName","sParentEmail","sParentStatus","studentResetPassword"])$(key).disabled=!s.parent_id;
+  $("studentImportReview").innerHTML=renderRosterReview(s);
   $("sBranch").value=s.branch||"";$("sGroup").value=s.group_name||"";$("sCurrentRank").value=s.current_rank||"";$("sNextRank").value=s.next_rank||"";$("sJoinedOn").value=s.joined_on||"";$("sActive").checked=!!s.active;
   $("sProgress").value=Number(g.progress_percent||0);$("sMonthlyGoal").value=g.monthly_goal||"";$("sCoachFeedback").value=g.coach_feedback||"";$("sPersonalPlan").value=g.personal_plan||"";$("sNextRankMaterial").value=g.next_rank_material||"";
   $("sParentName").value=p.full_name||"";$("sParentEmail").value=p.email||"";$("sParentStatus").value=p.approval_status||"pending";
@@ -280,7 +288,7 @@ async function openStudent(id){
 $("studentSave").onclick=async()=>{
   if(!currentStudentDetail?.child?.id)return;const b=$("studentSave");b.disabled=true;$("studentSaveMsg").textContent="שומר…";
   try{
-    await call({action:"admin_student_update",child_id:currentStudentDetail.child.id,child:{branch:$("sBranch").value.trim(),group_name:$("sGroup").value.trim(),current_rank:$("sCurrentRank").value.trim(),next_rank:$("sNextRank").value.trim(),joined_on:$("sJoinedOn").value||null,active:$("sActive").checked},progress:{progress_percent:Number($("sProgress").value||0),monthly_goal:$("sMonthlyGoal").value.trim(),coach_feedback:$("sCoachFeedback").value.trim(),personal_plan:$("sPersonalPlan").value.trim(),next_rank_material:$("sNextRankMaterial").value.trim()},parent:{full_name:$("sParentName").value.trim(),email:$("sParentEmail").value.trim(),approval_status:$("sParentStatus").value}});
+    await call({action:"admin_student_update",child_id:currentStudentDetail.child.id,child:{student_id_number:$("sStudentId").value.trim(),birth_date:$("sBirthDate").value||null,mother_name:$("sMotherName").value.trim(),father_name:$("sFatherName").value.trim(),contact_phone:$("sContactPhone").value.trim(),contact_email:$("sContactEmail").value.trim(),branch:$("sBranch").value.trim(),group_name:$("sGroup").value.trim(),current_rank:$("sCurrentRank").value.trim(),next_rank:$("sNextRank").value.trim(),joined_on:$("sJoinedOn").value||null,active:$("sActive").checked},progress:{progress_percent:Number($("sProgress").value||0),monthly_goal:$("sMonthlyGoal").value.trim(),coach_feedback:$("sCoachFeedback").value.trim(),personal_plan:$("sPersonalPlan").value.trim(),next_rank_material:$("sNextRankMaterial").value.trim()},parent:{full_name:$("sParentName").value.trim(),email:$("sParentEmail").value.trim(),approval_status:$("sParentStatus").value}});
     $("studentSaveMsg").innerHTML="<div class='info'>נשמר בהצלחה.</div>";await loadStudents();await openStudent(currentStudentDetail.child.id);
   }catch(e){$("studentSaveMsg").innerHTML="<div class='err'>לא ניתן לשמור את האזור האישי.</div>"}finally{b.disabled=false}
 };
