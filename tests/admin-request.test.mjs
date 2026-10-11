@@ -38,6 +38,7 @@ class Element {
   setAttribute(key, value) { this.attributes.set(key, String(value)); }
   removeAttribute(key) { this.attributes.delete(key); }
   getAttribute(key) { return this.attributes.get(key) ?? null; }
+  addEventListener(type, handler) { this['on'+type] = handler; }
   appendChild(option) { this.options.push(option); }
   focus() { this.document.activeElement = this; }
 }
@@ -253,3 +254,4 @@ test('open-mat date and search controls call only the authenticated reservation 
   assert.deepEqual(h.calls.at(-1),{action:'admin_open_mat_list',page:1,page_size:50,search:'בדיקה',training_date:'2026-10-12'});
   assert.ok(h.el('openMatRows').textContent.includes('אין הזמנות'));
 });
+

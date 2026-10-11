@@ -133,7 +133,22 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
     profile=p;
   }
 
-  let childId=r.child_id||null;
+  // Imported roster entries are private until a registration links the known guardian.
+  const {data:pendingChildren,error:pendingError}=await s.from("children")
+    .select("id,first_name,last_name").is("parent_id",null).eq("contact_phone",local);
+  if(pendingError) throw pendingError;
+  const requestName=String(r.student_name||"").trim();
+  const pendingRequest=(pendingChildren||[]).find((x:any)=>(x.first_name+" "+x.last_name).trim()===requestName);
+  if(pendingRequest){
+    const {error:claimError}=await s.from("children").update({parent_id:profile.id,updated_at:now})
+      .is("parent_id",null).eq("contact_phone",local).in("id",pendingChildren.map((x:any)=>x.id));
+    if(claimError) throw claimError;
+    const {error:familyLinkError}=await s.from("team_payment_requests")
+      .update({parent_profile_id:profile.id,updated_at:now}).is("parent_profile_id",null)
+      .eq("parent_phone_normalized",local).in("child_id",pendingChildren.map((x:any)=>x.id));
+    if(familyLinkError) throw familyLinkError;
+  }
+  let childId=r.child_id||pendingRequest?.id||null;
   if(childId) {
     const {data:linked}=await s.from("children").select("id,parent_id").eq("id",childId).maybeSingle();
     if(!linked||linked.parent_id!==profile.id) throw new Error("PORTAL_CHILD_CONFLICT");
@@ -147,6 +162,9 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
     if(!childId) {
       const {data:newChild,error:ci}=await s.from("children").insert({
         parent_id:profile.id,
+        student_id_type:documentType(c.student_id_type),
+        student_id_number:normalizeDocumentId(c.student_id_type,c.student_id_number),
+        birth_date:c.student_birth_date,
         first_name:nm.first_name,
         last_name:nm.last_name,
         branch:String(r.branch||""),
@@ -159,6 +177,13 @@ async function ensurePortalAccount(s:any,r:any,c:any,password:unknown) {
       await s.from("student_progress").upsert({child_id:childId},{onConflict:"child_id",ignoreDuplicates:true});
     }
   }
+
+  const {error:idFillError}=await s.from("children").update({
+    student_id_type:documentType(c.student_id_type),
+    student_id_number:normalizeDocumentId(c.student_id_type,c.student_id_number),
+    updated_at:now
+  }).eq("id",childId).is("student_id_number",null);
+  if(idFillError)throw idFillError;
 
   const {error:linkError}=await s.from("team_payment_requests").update({
     parent_profile_id:profile.id,
@@ -200,6 +225,16 @@ function validIsraeliId(v:unknown) {
   let sum=0;
   for(let i=0;i<9;i++){let n=Number(s[i])*(i%2===0?1:2);if(n>9)n-=9;sum+=n;}
   return sum%10===0;
+}
+function documentType(v:unknown) { return String(v ?? "israeli_id"); }
+function validDocumentId(type:unknown,v:unknown) {
+  const kind=documentType(type), value=String(v||"").trim();
+  return kind==="passport" ? /^[A-Z0-9]{5,20}$/i.test(value)
+    : kind==="israeli_id" && /^[0-9]{5,9}$/.test(value) && validIsraeliId(value);
+}
+function normalizeDocumentId(type:unknown,v:unknown) {
+  const value=String(v||"").trim();
+  return documentType(type)==="passport" ? value.toUpperCase() : value.padStart(9,"0");
 }
 function validBirthDate(v:unknown) {
   const s=String(v||"");
@@ -381,7 +416,7 @@ Deno.serve(async (req:Request)=>{
     if(input.action==="admin_students") {
       const a=await admin(req); if(!a) return out({ok:false,code:"UNAUTHORIZED"},401);
       const {data:children,error}=await s.from("children")
-        .select("id,parent_id,first_name,last_name,branch,group_name,current_rank,next_rank,joined_on,active,created_at,updated_at")
+        .select("id,parent_id,first_name,last_name,branch,group_name,current_rank,next_rank,joined_on,active,created_at,updated_at,student_id_type,student_id_number,birth_date,mother_name,father_name,contact_phone,contact_email,roster_source,data_review")
         .order("active",{ascending:false}).order("first_name",{ascending:true}).limit(1000);
       if(error) throw error;
       const parentIds=[...new Set((children||[]).map((x:any)=>x.parent_id).filter(Boolean))];
@@ -408,7 +443,7 @@ Deno.serve(async (req:Request)=>{
       const {data:child,error}=await s.from("children").select("*").eq("id",id).maybeSingle();
       if(error||!child) return out({ok:false,code:"NOT_FOUND"},404);
       const [{data:parent},{data:progress},{data:attendance},{data:achievements},{data:billing},{data:requests}]=await Promise.all([
-        s.from("profiles").select("id,full_name,phone,email,role,approval_status,approval_note,approved_at,phone_verified_at,created_at,updated_at").eq("id",child.parent_id).maybeSingle(),
+        child.parent_id ? s.from("profiles").select("id,full_name,phone,email,role,approval_status,approval_note,approved_at,phone_verified_at,created_at,updated_at").eq("id",child.parent_id).maybeSingle() : Promise.resolve({data:null}),
         s.from("student_progress").select("*").eq("child_id",id).maybeSingle(),
         s.from("attendance").select("id,training_date,status,note").eq("child_id",id).order("training_date",{ascending:false}).limit(50),
         s.from("achievements").select("id,title,achieved_on,certificate_url,note").eq("child_id",id).order("achieved_on",{ascending:false}).limit(50),
@@ -433,6 +468,20 @@ Deno.serve(async (req:Request)=>{
         if(j&&!/^\d{4}-\d{2}-\d{2}$/.test(j)) return out({ok:false,code:"INVALID_JOIN_DATE"},400);
         childPatch.joined_on=j||null;
       }
+      for(const k of ["mother_name","father_name","contact_phone","contact_email"]){
+        if(k in childIn) childPatch[k]=String(childIn[k]||"").trim().slice(0,k==="contact_email"?254:100);
+      }
+      if("contact_phone" in childPatch){childPatch.contact_phone=normPhone(childPatch.contact_phone);if(childPatch.contact_phone&&!/^0\d{8,9}$/.test(childPatch.contact_phone)) return out({ok:false,code:"INVALID_STUDENT_PHONE"},400);}
+      if("contact_email" in childPatch){childPatch.contact_email=childPatch.contact_email.toLowerCase();if(childPatch.contact_email&&!validEmail(childPatch.contact_email)) return out({ok:false,code:"INVALID_EMAIL"},400);}
+      if("student_id_number" in childIn || "student_id_type" in childIn){
+        const {data:existing}=await s.from("children").select("student_id_number,student_id_type").eq("id",id).maybeSingle();
+        if(!existing)return out({ok:false,code:"NOT_FOUND"},404);
+        const kind=documentType(childIn.student_id_type??existing.student_id_type);
+        const v=String(("student_id_number" in childIn?childIn.student_id_number:existing.student_id_number)||"").trim();
+        if(!["israeli_id","passport"].includes(kind)||(v&&!validDocumentId(kind,v)))return out({ok:false,code:"INVALID_STUDENT_ID"},400);
+        childPatch.student_id_type=kind;childPatch.student_id_number=v?normalizeDocumentId(kind,v):null;
+      }
+      if("birth_date" in childIn){const v=String(childIn.birth_date||"").trim();if(v&&!validBirthDate(v)) return out({ok:false,code:"INVALID_BIRTH_DATE"},400);childPatch.birth_date=v||null;}
       childPatch.updated_at=new Date().toISOString();
       const {data:child,error}=await s.from("children").update(childPatch).eq("id",id).select("id,parent_id").maybeSingle();
       if(error||!child) return out({ok:false,code:"NOT_FOUND"},404);
@@ -441,7 +490,7 @@ Deno.serve(async (req:Request)=>{
       progressPatch.updated_at=new Date().toISOString();
       const {error:pe}=await s.from("student_progress").upsert(progressPatch,{onConflict:"child_id"});
       if(pe) throw pe;
-      if(input.parent && typeof input.parent==="object"){
+      if(child.parent_id && input.parent && typeof input.parent==="object"){
         const pp:any={updated_at:new Date().toISOString()};
         if("full_name" in input.parent) pp.full_name=String(input.parent.full_name||"").trim();
         if("email" in input.parent){const pe=String(input.parent.email||"").trim().toLowerCase();if(pe&&!validEmail(pe))return out({ok:false,code:"INVALID_EMAIL"},400);pp.email=pe;}
@@ -833,13 +882,15 @@ Deno.serve(async (req:Request)=>{
 
       const required=[c.student_id_number,c.student_birth_date,c.parent_name,c.parent_id_number,c.parent_relationship,c.parent_phone,c.parent_email,c.signature_name];
       const badHealth=!!c.health_has_issue && ![c.health_notes,c.medications,c.allergies,c.respiratory_notes,c.orthopedic_notes,c.special_instructions].some((v:any)=>String(v||"").trim());
-      if(required.some((v:any)=>!String(v||"").trim())||normPhone(c.parent_phone)!==p||!validIsraeliId(c.student_id_number)||!validIsraeliId(c.parent_id_number)||!validBirthDate(c.student_birth_date)||!validEmail(c.parent_email)||(c.emergency_phone&&normPhone(c.emergency_phone).length<9)||badHealth||!c.health_confirmed||!c.team_rules_accepted||!c.payment_terms_accepted||!c.admin_only_changes_accepted||!c.no_auto_cancel_accepted||!c.privacy_accepted||!c.guardian_confirmed) return out({ok:false,code:"INVALID_CONSENT"},400);
+      if(required.some((v:any)=>!String(v||"").trim())||normPhone(c.parent_phone)!==p||!validDocumentId(c.student_id_type,c.student_id_number)||!validDocumentId(c.parent_id_type,c.parent_id_number)||!validBirthDate(c.student_birth_date)||!validEmail(c.parent_email)||(c.emergency_phone&&normPhone(c.emergency_phone).length<9)||badHealth||!c.health_confirmed||!c.team_rules_accepted||!c.payment_terms_accepted||!c.admin_only_changes_accepted||!c.no_auto_cancel_accepted||!c.privacy_accepted||!c.guardian_confirmed) return out({ok:false,code:"INVALID_CONSENT"},400);
 
       const consent={
-        student_id_number:String(c.student_id_number).replace(/\D/g,"").padStart(9,"0"),
+        student_id_type:documentType(c.student_id_type),
+        student_id_number:normalizeDocumentId(c.student_id_type,c.student_id_number),
         student_birth_date:c.student_birth_date,
         parent_name:String(c.parent_name).trim(),
-        parent_id_number:String(c.parent_id_number).replace(/\D/g,"").padStart(9,"0"),
+        parent_id_type:documentType(c.parent_id_type),
+        parent_id_number:normalizeDocumentId(c.parent_id_type,c.parent_id_number),
         parent_relationship:String(c.parent_relationship||""),
         parent_phone:String(c.parent_phone),
         parent_email:String(c.parent_email).trim().toLowerCase(),
@@ -910,5 +961,3 @@ Deno.serve(async (req:Request)=>{
     return out({ok:false,code:"SERVICE_UNAVAILABLE"},503);
   }
 });
-
-
