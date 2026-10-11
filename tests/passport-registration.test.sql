@@ -11,18 +11,18 @@ declare
   student_type text;
   parent_type text;
 begin
-  for mode in 1..3 loop
+  for mode in 1..6 loop
     proof := md5(gen_random_uuid()::text)||md5(gen_random_uuid()::text);
     insert into public.team_payment_requests(token_hash,student_name,parent_name,parent_phone,parent_email,request_status)
     values(md5(gen_random_uuid()::text)||md5(gen_random_uuid()::text),'Passport Fixture','Fixture Guardian','0500000001','fixture@example.test','sent')
     returning id into fixture_request_id;
     insert into public.team_payment_verification_sessions(request_id,proof_hash) values(fixture_request_id,proof);
-    student_type := case when mode=3 then 'israeli_id' else 'passport' end;
-    parent_type := case when mode=1 then 'passport' else 'israeli_id' end;
+    student_type := case when mode in (3,6) then 'israeli_id' when mode in (4,5) then 'foreign_id' else 'passport' end;
+    parent_type := case when mode in (1,5) then 'passport' when mode in (4,6) then 'foreign_id' else 'israeli_id' end;
     input := jsonb_build_object(
-      'student_id_number',case when mode=3 then '123456782' else '001AB23456789' end,
+      'student_id_number',case student_type when 'israeli_id' then '123456782' when 'foreign_id' then '123456783' else '001AB23456789' end,
       'student_birth_date','2015-01-01','parent_name','Fixture Guardian',
-      'parent_id_number',case when mode=1 then 'XY123456789012' else '123456782' end,
+      'parent_id_number',case parent_type when 'passport' then 'XY123456789012' when 'foreign_id' then '000000001' else '123456782' end,
       'parent_relationship','אב','parent_phone','0500000001','parent_email','fixture@example.test',
       'health_confirmed',true,'team_rules_accepted',true,'payment_terms_accepted',true,
       'admin_only_changes_accepted',true,'no_auto_cancel_accepted',true,'privacy_accepted',true,
@@ -52,6 +52,20 @@ begin
   if (select student_id_number from public.children where id=child_id)<>'001AB23456789'
   then raise exception 'The child passport number changed'; end if;
 
+  update public.children set student_id_type='foreign_id',student_id_number='000000001' where id=child_id;
+  if (select student_id_number from public.children where id=child_id)<>'000000001'
+  then raise exception 'The foreign identifier changed'; end if;
+  begin
+    update public.children set student_id_number='12345678' where id=child_id;
+    raise exception 'A foreign identifier accepted fewer than nine digits';
+  exception when check_violation then null;
+  end;
+  begin
+    update public.children set student_id_number='AB1234567' where id=child_id;
+    raise exception 'A foreign identifier accepted letters';
+  exception when check_violation then null;
+  end;
+
   if has_table_privilege('anon','public.team_payment_consents','SELECT') or has_table_privilege('authenticated','public.team_payment_consents','SELECT')
     or has_function_privilege('anon','public.team_payment_submit_consent(uuid,jsonb,text,text,text)','EXECUTE')
     or has_function_privilege('authenticated','public.team_payment_submit_consent(uuid,jsonb,text,text,text)','EXECUTE')
@@ -59,4 +73,4 @@ begin
 end;
 $test$;
 rollback;
-select 'Passport, mixed documents, legacy IDs, child storage and privacy checks passed; all fixtures rolled back.' as result;
+select 'Passports, foreign identifiers, mixed documents, legacy IDs, child storage and privacy checks passed; all fixtures rolled back.' as result;

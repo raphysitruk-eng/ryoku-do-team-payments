@@ -32,6 +32,11 @@ test('both document selectors switch the number label, keyboard, limits and vali
     select.value='israeli_id';select.onchange();
     assert.equal(input.attrs.inputmode,'numeric');assert.equal(input.attrs.maxlength,'9');assert.ok(input.validation);
     select.value='passport';select.onchange();assert.equal(input.validation,'');
+    input.value='123456783';select.value='foreign_id';select.onchange();
+    assert.match(f.element(prefix+'IdLabel').textContent,/תושב/);
+    assert.equal(input.attrs.inputmode,'numeric');assert.equal(input.attrs.minlength,'9');assert.equal(input.attrs.pattern,'[0-9]{9}');assert.equal(input.validation,'');
+    select.value='israeli_id';select.onchange();assert.ok(input.validation);
+    select.value='foreign_id';select.onchange();assert.equal(input.validation,'');
   }
 });
 test('passport registration submits both types and preserves letters and leading zeroes',async()=>{
@@ -47,6 +52,30 @@ test('passport registration submits both types and preserves letters and leading
 test('a passport student can register with an Israeli-ID guardian',async()=>{
   const f=parentForm();f.element('studentIdType').value='passport';f.element('studentId').value='AB123456';f.element('parentId').value='123456782';
   await f.submit();assert.equal(f.calls[0].consent.parent_id_type,'israeli_id');assert.equal(f.calls[0].consent.parent_id_number,'123456782');
+});
+test('nine-digit foreign identifiers submit without Israeli checksum validation or number changes',async()=>{
+  const f=parentForm();
+  for(const prefix of ['student','parent'])f.element(prefix+'IdType').value='foreign_id';
+  f.element('studentId').value='123456783';f.element('parentId').value='000000001';
+  await f.submit();
+  assert.equal(f.calls[0].consent.student_id_type,'foreign_id');assert.equal(f.calls[0].consent.student_id_number,'123456783');
+  assert.equal(f.calls[0].consent.parent_id_type,'foreign_id');assert.equal(f.calls[0].consent.parent_id_number,'000000001');
+  assert.equal(f.locations.length,1);
+});
+test('a guardian can use a foreign identifier while the student uses an Israeli ID or Ukrainian-format passport',async()=>{
+  for(const [type,value] of [['israeli_id','123456782'],['passport','ab123456']]) {
+    const f=parentForm();f.element('studentIdType').value=type;f.element('studentId').value=value;
+    f.element('parentIdType').value='foreign_id';f.element('parentId').value='123456783';
+    await f.submit();assert.equal(f.calls[0].consent.parent_id_type,'foreign_id');assert.equal(f.calls[0].consent.parent_id_number,'123456783');
+    assert.equal(f.calls[0].consent.student_id_number,value.toUpperCase());
+  }
+});
+test('foreign identifiers must contain exactly nine digits for either person',async()=>{
+  for(const prefix of ['student','parent'])for(const value of ['12345678','1234567890','AB1234567','123-56783']) {
+    const f=parentForm();f.element('studentId').value='123456782';f.element('parentId').value='123456782';
+    f.element(prefix+'IdType').value='foreign_id';f.element(prefix+'Id').value=value;
+    await f.submit();assert.equal(f.calls.length,0);assert.match(f.element('msg').innerHTML,/9 ספרות/);
+  }
 });
 test('invalid passport numbers stop before submission',async()=>{
   for(const value of ['AB12','AB-12345','AB 12345','א123456','A'.repeat(21)]) {
@@ -79,6 +108,23 @@ test('server validates mixed documents and sends their exact normalized values t
 });
 test('legacy Israeli ID submissions default to Israeli IDs',async()=>{
   const r=await backend().submit(consent);assert.equal(r.status,200);assert.equal(r.consent.student_id_type,'israeli_id');assert.equal(r.consent.parent_id_type,'israeli_id');
+});
+test('server accepts foreign identifiers independently for student and guardian',async()=>{
+  for(const patch of [
+    {parent_id_type:'foreign_id',parent_id_number:'123456783'},
+    {student_id_type:'foreign_id',student_id_number:'000000001'},
+    {student_id_type:'passport',student_id_number:'ab123456',parent_id_type:'foreign_id',parent_id_number:'123456783'},
+    {student_id_type:'foreign_id',student_id_number:'123456783',parent_id_type:'foreign_id',parent_id_number:'000000001'}
+  ]) {
+    const r=await backend().submit({...consent,...patch});assert.equal(r.status,200);
+    for(const [key,value] of Object.entries(patch))assert.equal(r.consent[key],key.endsWith('_number')?value.toUpperCase():value);
+  }
+});
+test('server rejects malformed foreign identifiers instead of stripping characters or padding them',async()=>{
+  for(const prefix of ['student','parent'])for(const value of ['12345678','1234567890','AB1234567','123-56783']) {
+    const r=await backend().submit({...consent,[prefix+'_id_type']:'foreign_id',[prefix+'_id_number']:value});
+    assert.equal(r.status,400);assert.equal(r.body.code,'INVALID_CONSENT');assert.equal(r.consent,undefined);
+  }
 });
 test('server rejects invalid documents, unknown types and incorrect ID checksums',async()=>{
   for(const patch of [{student_id_type:'passport',student_id_number:'AB 12345'},{parent_id_type:'passport',parent_id_number:'AB-12345'},{student_id_type:'drivers_license'},{student_id_number:'123456783'},{student_id_type:'israeli_id',student_id_number:'AB123456782'}]) {

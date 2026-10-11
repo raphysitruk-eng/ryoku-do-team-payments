@@ -261,15 +261,15 @@ function renderConsentFull(co){
   const e=co.extra_details||{};
   const row=(label,val)=>"<div class='list-item'><b>"+esc(label)+":</b> "+esc(val===true?"כן":val===false?"לא":val||"—")+"</div>";
   return "<div class='grid'><section><h4>פרטי חניך</h4>"+
-    row(co.student_id_type==="passport"?"מספר דרכון":"תעודת זהות",co.student_id_number)+row("תאריך לידה",co.student_birth_date)+row("מין",e.gender)+row("עיר",e.city)+row("כתובת",e.address)+row("בית ספר",e.school)+row("כיתה",e.school_grade)+
-    "</section><section><h4>פרטי הורה</h4>"+row("שם",co.parent_name)+row(co.parent_id_type==="passport"?"מספר דרכון":"תעודת זהות",co.parent_id_number)+row("קרבה",co.parent_relationship)+row("טלפון",co.parent_phone)+row("אימייל",co.parent_email)+
+    row(co.student_id_type==="passport"?"מספר דרכון":co.student_id_type==="foreign_id"?"מספר מזהה לתושב/ת זר/ה":"תעודת זהות",co.student_id_number)+row("תאריך לידה",co.student_birth_date)+row("מין",e.gender)+row("עיר",e.city)+row("כתובת",e.address)+row("בית ספר",e.school)+row("כיתה",e.school_grade)+
+    "</section><section><h4>פרטי הורה</h4>"+row("שם",co.parent_name)+row(co.parent_id_type==="passport"?"מספר דרכון":co.parent_id_type==="foreign_id"?"מספר מזהה לתושב/ת זר/ה":"תעודת זהות",co.parent_id_number)+row("קרבה",co.parent_relationship)+row("טלפון",co.parent_phone)+row("אימייל",co.parent_email)+
     "</section><section><h4>איש קשר לחירום</h4>"+row("שם",co.emergency_name)+row("קרבה",co.emergency_relationship)+row("טלפון",co.emergency_phone)+
     "</section><section><h4>בריאות</h4>"+row("בעיה / מגבלה רפואית",co.health_has_issue)+row("פירוט כללי",co.health_notes)+row("תרופות",co.medications)+row("אלרגיות",co.allergies)+row("נשימה / אסתמה",co.respiratory_notes)+row("אורתופדי",co.orthopedic_notes)+row("הנחיות מיוחדות",co.special_instructions)+row("הצהרת בריאות אושרה",co.health_confirmed)+
     "</section><section><h4>אישורים</h4>"+row("צילום ופרסום",co.photo_permission)+row("תקנון נבחרת",co.team_rules_accepted)+row("תנאי תשלום",co.payment_terms_accepted)+row("שינויים דרך הנהלה בלבד",co.admin_only_changes_accepted)+row("אין ביטול אוטומטי",co.no_auto_cancel_accepted)+row("פרטיות",co.privacy_accepted)+row("אפוטרופוס",co.guardian_confirmed)+row("שם לחתימה",co.signature_name)+
     "</section><section><h4>תיעוד</h4>"+row("גרסת תקנון",co.terms_version)+row("גרסת פרטיות",co.privacy_version)+row("מועד אישור",co.accepted_at)+"</section></div>";
 }
 function renderRosterReview(s){
-  const labels={student_id_number:"מספר תעודת זהות / דרכון",student_id_type:"סוג מסמך זיהוי",birth_date:"תאריך לידה",contact_email:"אימייל קשר"};
+  const labels={student_id_number:"מספר מסמך זיהוי",student_id_type:"סוג מסמך זיהוי",birth_date:"תאריך לידה",contact_email:"אימייל קשר"};
   const items=Array.isArray(s.data_review)?s.data_review:[];
   return (s.roster_source?"<p class='muted'>מקור הפרטים: "+esc(s.roster_source)+"</p>":"")+(items.length?"<div class='err' style='background:#fff8e5;color:#4d3b12'><b>פרטים לאימות מול ההורה</b>"+items.map(v=>"<p><b>"+esc(labels[v.field]||v.field)+"</b><br>ברשימה: <span dir='auto'>"+esc(v.imported_value)+"</span><br>בטופס ההרשמה: <span dir='auto'>"+esc(v.form_value)+"</span></p>").join("")+"<p>הטופס החתום נשמר כפי שהוגש.</p></div>":"");
 }
@@ -392,5 +392,5 @@ $("sCurrentRank").addEventListener("input",()=>{
 });
 
 
-function updateStudentDocument(){const passport=$("sStudentIdType").value==="passport";$("sStudentIdLabel").textContent=passport?"מספר דרכון החניך":"מספר תעודת זהות החניך";$("sStudentId").setAttribute("inputmode",passport?"text":"numeric");$("sStudentId").setAttribute("maxlength",passport?"20":"9");$("sStudentId").setAttribute("pattern",passport?"[A-Za-z0-9]{5,20}":"[0-9]{5,9}")}
+function updateStudentDocument(){const passport=$("sStudentIdType").value==="passport",foreign=$("sStudentIdType").value==="foreign_id";$("sStudentIdLabel").textContent=passport?"מספר דרכון החניך":foreign?"מספר מזהה לתושב/ת זר/ה":"מספר תעודת זהות החניך";$("sStudentId").setAttribute("inputmode",passport?"text":"numeric");$("sStudentId").setAttribute("maxlength",passport?"20":"9");$("sStudentId").setAttribute("pattern",passport?"[A-Za-z0-9]{5,20}":foreign?"[0-9]{9}":"[0-9]{5,9}")}
 $("sStudentIdType").onchange=updateStudentDocument;

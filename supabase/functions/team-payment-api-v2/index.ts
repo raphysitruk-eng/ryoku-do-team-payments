@@ -230,11 +230,12 @@ function documentType(v:unknown) { return String(v ?? "israeli_id"); }
 function validDocumentId(type:unknown,v:unknown) {
   const kind=documentType(type), value=String(v||"").trim();
   return kind==="passport" ? /^[A-Z0-9]{5,20}$/i.test(value)
+    : kind==="foreign_id" ? /^[0-9]{9}$/.test(value)
     : kind==="israeli_id" && /^[0-9]{5,9}$/.test(value) && validIsraeliId(value);
 }
 function normalizeDocumentId(type:unknown,v:unknown) {
   const value=String(v||"").trim();
-  return documentType(type)==="passport" ? value.toUpperCase() : value.padStart(9,"0");
+  return documentType(type)==="passport" ? value.toUpperCase() : documentType(type)==="israeli_id" ? value.padStart(9,"0") : value;
 }
 function validBirthDate(v:unknown) {
   const s=String(v||"");
@@ -478,7 +479,7 @@ Deno.serve(async (req:Request)=>{
         if(!existing)return out({ok:false,code:"NOT_FOUND"},404);
         const kind=documentType(childIn.student_id_type??existing.student_id_type);
         const v=String(("student_id_number" in childIn?childIn.student_id_number:existing.student_id_number)||"").trim();
-        if(!["israeli_id","passport"].includes(kind)||(v&&!validDocumentId(kind,v)))return out({ok:false,code:"INVALID_STUDENT_ID"},400);
+        if(!["israeli_id","foreign_id","passport"].includes(kind)||(v&&!validDocumentId(kind,v)))return out({ok:false,code:"INVALID_STUDENT_ID"},400);
         childPatch.student_id_type=kind;childPatch.student_id_number=v?normalizeDocumentId(kind,v):null;
       }
       if("birth_date" in childIn){const v=String(childIn.birth_date||"").trim();if(v&&!validBirthDate(v)) return out({ok:false,code:"INVALID_BIRTH_DATE"},400);childPatch.birth_date=v||null;}
