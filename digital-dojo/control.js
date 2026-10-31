@@ -10,11 +10,11 @@ const vlabels={overview:"לוח בקרה",students:"חניכים והורים",g
 const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
 const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
 const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
-const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],rankGrants:[],groupGrants:[],search:"",busy:false,drawer:null,finance:null,advanced:false};
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],rankGrants:[],groupGrants:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
-const rows=kind=>asArr(S.sets[kind==='lead'?'leads':kind==='task'?'tasks':kind]);
+const rows=kind=>asArr(S.sets[({lead:"leads",task:"tasks",student:"students",group:"groups",session:"sessions"})[kind]||kind]);
 const errorOf=kind=>S.fail[kind]||"";
 const nameChild=c=>[c.first_name,c.last_name].filter(Boolean).join(" ")||"ללא שם";
 const nameGroup=id=>rows("groups").find(g=>g.id===id)?.name||"—";
@@ -33,7 +33,15 @@ const panel=(title,body,extra="")=>'<section class="panel"><div class="panel-hea
 const empty=(title,msg)=>'<div class="empty"><span class="empty-icon">'+I("info")+'</span><strong>'+H(title)+'</strong>'+H(msg||"")+'</div>';
 const metric=(title,num,detail,icon,color="")=>'<div class="metric '+color+'"><div class="label"><span>'+H(title)+'</span><span class="icon-swatch">'+I(icon)+'</span></div><div class="number">'+H(num)+'</div><div class="note">'+H(detail)+'</div></div>';
 const message=txt=>'<div class="alert-bar">'+I("info")+'<span>'+H(txt)+'</span></div>';
-const table=(headers,body,cls="")=>'<div class="table-wrap"><table class="data-table '+cls+'"><thead><tr>'+headers.map(x=>'<th>'+H(x)+'</th>').join("")+'</tr></thead><tbody>'+body.join("")+'</tbody></table></div>';
+const table=(headers,body,cls="")=>{
+ const pages=Math.max(1,Math.ceil(body.length/S.pageSize)),index=Math.min(S.page,pages-1);
+ const chunk=body.slice(index*S.pageSize,(index+1)*S.pageSize);
+ const pager=pages>1?'<div class="table-pager" role="navigation" aria-label="דפדוף בטבלה"><span>מציג '+(index*S.pageSize+1)+'–'+Math.min(body.length,(index+1)*S.pageSize)+' מתוך '+body.length+'</span><div>'+
+ '<button type="button" data-page="'+(index-1)+'" '+(index===0?'disabled':'')+' aria-label="עמוד קודם">הקודם</button>'+
+ '<span>עמוד '+(index+1)+' מתוך '+pages+'</span>'+
+ '<button type="button" data-page="'+(index+1)+'" '+(index>=pages-1?'disabled':'')+' aria-label="עמוד הבא">הבא</button></div></div>':'';
+ return '<div class="table-wrap"><table class="data-table '+cls+'"><thead><tr>'+headers.map(x=>'<th scope="col">'+H(x)+'</th>').join("")+'</tr></thead><tbody>'+chunk.join("")+'</tbody></table>'+pager+'</div>';
+};
 function login(msg,show=true){
  $("shell").classList.add("hide");$("authGate").classList.remove("hide");$("gateMessage").textContent=msg||"כניסה למנהלים מורשים בלבד";
  $("loginForm").classList.toggle("hide",!show);
@@ -90,7 +98,7 @@ async function refresh(){
 }
 function navigate(view){
  if(!vlabels[view])return;
- S.view=view;S.search="";S.drawer=null;hideDrawer();
+ S.view=view;S.search="";S.page=0;S.drawer=null;hideDrawer();
  const url=new URL(location.href);url.searchParams.set("view",view);
  history.replaceState(null,"",url.pathname+url.search);
  document.querySelectorAll("[data-view]").forEach(el=>{
@@ -381,20 +389,11 @@ function videoPermissionEditor(v){
 async function saveVideoGrants(form){
  const id=S.drawer?.id;if(!S.videos.some(v=>v.id===id))throw Error("לא נמצא סרטון");
  const f=new FormData(form);
- const rank=f.getAll("rank").map(String),groups=f.getAll("group").map(String);
- const oldRank=S.rankGrants.filter(x=>x.video_id===id).map(x=>x.rank_key);
- const oldGroup=S.groupGrants.filter(x=>x.video_id===id).map(x=>x.group_id);
- const ops=[];
- oldRank.filter(x=>!rank.includes(x)).forEach(k=>ops.push(sb.from("training_video_rank_grants").delete().eq("video_id",id).eq("rank_key",k)));
- rank.filter(x=>!oldRank.includes(x)).forEach(k=>ops.push(sb.from("training_video_rank_grants").insert({video_id:id,rank_key:k})));
- oldGroup.filter(x=>!groups.includes(x)).forEach(k=>ops.push(sb.from("training_video_group_grants").delete().eq("video_id",id).eq("group_id",k)));
- groups.filter(x=>!oldGroup.includes(x)).forEach(k=>ops.push(sb.from("training_video_group_grants").insert({video_id:id,group_id:k})));
- const results=await Promise.allSettled(ops);
- if(results.some(x=>x.status==="rejected"||x.value?.error)){
-  await refresh();
-  throw Error("לא כל ההרשאות נשמרו; הנתונים רועננו. יש לבדוק את הרשאות הסרטון לפני ניסיון נוסף");
- }
- await refresh();hideDrawer();toast("הרשאות הסרטון נשמרו בהצלחה");
+ const ranks=[...new Set(f.getAll("rank").map(String))];
+ const groups=[...new Set(f.getAll("group").map(String))];
+ const result=requireData(await sb.rpc("training_video_set_grants",{p_video_id:id,p_ranks:ranks,p_groups:groups}));
+ await refresh();hideDrawer();toast("כל הרשאות הסרטון נשמרו בעסקה אחת");
+ return result;
 }
 
 async function saveItem(form){
@@ -496,6 +495,8 @@ document.addEventListener("click",async e=>{
  if(globalView){closeGlobalSearch();navigate(globalView.dataset.globalView);return}
  const globalItem=e.target.closest("[data-global-item]");
  if(globalItem){closeGlobalSearch();chooseItem(globalItem.dataset.globalItem,globalItem.dataset.id);return}
+ const pager=e.target.closest("[data-page]");
+ if(pager){S.page=Math.max(0,Number(pager.dataset.page)||0);render();return}
  const nav=e.target.closest("[data-view]");if(nav){navigate(nav.dataset.view);return}
  const card=e.target.closest("[data-go]");if(card){navigate(card.dataset.go);return}
  const target=e.target.closest("[data-item]");if(target){chooseItem(target.dataset.item,target.dataset.id);return}
@@ -510,7 +511,7 @@ document.addEventListener("input",e=>{
  if(e.target.id==="globalSearchInput"){renderGlobalSearch();return}
  if(e.target.id==="searchInput"){
   const value=e.target.value,position=e.target.selectionStart;
-  S.search=value;render();const node=$("searchInput");if(node){node.focus();try{node.setSelectionRange(position,position)}catch(_){}}}
+  S.search=value;S.page=0;render();const node=$("searchInput");if(node){node.focus();try{node.setSelectionRange(position,position)}catch(_){}}}
 });
 document.addEventListener("submit",async e=>{
  const form=e.target;
