@@ -59,6 +59,7 @@ b.textContent=S.profile.full_name||S.profile.email||"משתמש";log.style.displ
 var admin=isAdmin(), tabs=[["library","הספרייה"]].concat(admin?[["catalog","ניהול סרטונים"],["grants","הרשאות"],["audit","יומן שינויים"]]:[]);
 var title='<div class="row between"><div><h1 class="section-title">ברוכים הבאים לספריית ההדרכה</h1><p class="muted sm">תכני הקראטה של Ryoku-Do במקום אחד.</p></div><span class="pill">'+(admin?"מנהל":"חשבון מאושר")+'</span></div>';
 var nav='<nav class="tabs">'+tabs.map(function(x){return '<button class="tab '+(S.tab===x[0]?"active":"")+'" data-act="tab:'+x[0]+'">'+x[1]+'</button>'}).join("")+'</nav>';
+if(admin)nav=nav.replace("</nav>",'<a class="tab" href="./admin.html" style="text-decoration:none;background:#d5b57c;color:#142237;border-color:#d5b57c;font-weight:800">✦ ממשק הניהול החדש</a></nav>');
 var body=S.tab==="catalog"&&admin?catalogHtml():S.tab==="grants"&&admin?grantsHtml():S.tab==="audit"&&admin?activityHtml():libraryHtml();
 $("root").innerHTML=title+nav+msg()+body;
 }
