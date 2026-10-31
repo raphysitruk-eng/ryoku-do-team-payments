@@ -356,21 +356,12 @@ async function saveVideo(form){
 }
 async function syncVideoGrants(form){
  var id=S.drawer.id;if(!vid(id))throw Error("הסרטון לא נמצא");
- var f=new FormData(form),ranks=f.getAll("rank").map(String),groups=f.getAll("group").map(String);
- var priorRanks=S.rankGrants.filter(function(g){return g.video_id===id}).map(function(g){return g.rank_key});
- var priorGroups=S.groupGrants.filter(function(g){return g.video_id===id}).map(function(g){return g.group_id});
- var removeRanks=priorRanks.filter(function(x){return !ranks.includes(x)}),addRanks=ranks.filter(function(x){return !priorRanks.includes(x)});
- var removeGroups=priorGroups.filter(function(x){return !groups.includes(x)}),addGroups=groups.filter(function(x){return !priorGroups.includes(x)});
- var operations=[];
- removeRanks.forEach(function(r){operations.push(sb.from("training_video_rank_grants").delete().eq("video_id",id).eq("rank_key",r))});
- addRanks.forEach(function(r){operations.push(sb.from("training_video_rank_grants").insert({video_id:id,rank_key:r}))});
- removeGroups.forEach(function(g){operations.push(sb.from("training_video_group_grants").delete().eq("video_id",id).eq("group_id",g))});
- addGroups.forEach(function(g){operations.push(sb.from("training_video_group_grants").insert({video_id:id,group_id:g}))});
- // Report partial writes explicitly rather than showing a false success.
- var results=await Promise.allSettled(operations);
- var failures=results.filter(function(x){return x.status==="rejected"||(x.status==="fulfilled"&&x.value.error)});
- if(failures.length)throw Error("חלק מהשינויים לא נשמרו; רענן ובדוק הרשאות לפני ניסיון חוזר");
+ var f=new FormData(form);
+ var ranks=[...new Set(f.getAll("rank").map(String))];
+ var groups=[...new Set(f.getAll("group").map(String))];
+ assert(await sb.rpc("training_video_set_grants",{p_video_id:id,p_ranks:ranks,p_groups:groups}));
 }
+
 async function applyPersonal(form){
  var f=new FormData(form),videoId=String(f.get("video_id")||""),scope=String(f.get("scope")||""),decision=String(f.get("decision")||"");
  var match=scope.match(/^(profile|child):([0-9a-f-]{36})$/i);
