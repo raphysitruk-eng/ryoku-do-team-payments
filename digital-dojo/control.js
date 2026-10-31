@@ -433,7 +433,57 @@ async function saveForm(form){
  catch(err){toast(err.message||"שמירה נכשלה",true)}
  finally{S.busy=false;if(buttonNode)buttonNode.disabled=false}
 }
+
+const GLOBAL_PAGES=[
+ ["overview","לוח בקרה","grid"],["students","חניכים והורים","users"],
+ ["groups","סניפים וקבוצות","book"],["sessions","אימונים ונוכחות","check"],
+ ["leads","פניות והרשמות","search"],["tasks","משימות ומעקב","clock"],
+ ["videos","ספריית הדרכה","film"],["payments","כספים וחיובים","shield"],
+ ["content","תוכן, ציוד ואירועים","settings"],["integrations","חיבורים ותשתיות","external"]
+];
+function globalMatches(query){
+ const term=String(query||"").trim().toLocaleLowerCase("he-IL");
+ const pages=GLOBAL_PAGES.filter(x=>!term||x[1].toLocaleLowerCase("he-IL").includes(term)).map(x=>({label:x[1],meta:"מסך ניהול",icon:x[2],view:x[0]}));
+ if(!term)return pages;
+ const matches=[];
+ [
+ ["student",rows("students"),x=>nameChild(x)+" "+x.branch+" "+x.group_name,"חניך","users"],
+ ["lead",rows("leads"),x=>x.title+" "+x.branch,"פנייה","search"],
+ ["task",rows("tasks"),x=>x.title+" "+x.branch,"משימה","clock"],
+ ["video",S.videos,x=>x.title_he+" "+x.category,"סרטון","film"],
+ ["group",rows("groups"),x=>x.name+" "+x.branch,"קבוצה","book"]
+ ].forEach(set=>{
+  set[1].forEach(item=>{
+   if(String(set[2](item)).toLocaleLowerCase("he-IL").includes(term)){
+    matches.push({label:set[0]==="student"?nameChild(item):set[0]==="group"?item.name:set[0]==="video"?item.title_he:item.title,meta:set[3],icon:set[4],kind:set[0],id:item.id});
+   }
+  });
+ });
+ return pages.concat(matches).slice(0,14);
+}
+function renderGlobalSearch(){
+ const items=globalMatches($("globalSearchInput").value);
+ $("globalSearchResults").innerHTML=items.length?items.map((x,i)=>{
+  const a=x.view?' data-global-view="'+H(x.view)+'"':' data-global-item="'+H(x.kind)+'" data-id="'+H(x.id)+'"';
+  return '<button type="button" class="search-result"'+a+'>'+I(x.icon)+
+  '<span><strong style="display:block">'+H(x.label)+'</strong><small class="muted">'+H(x.meta)+'</small></span>'+
+  '<span style="margin-right:auto;color:#94a1ad">'+I("chevron")+'</span></button>';
+ }).join(""):empty("לא נמצאו תוצאות","נסה מונח אחר");
+}
+function openGlobalSearch(){
+ if(S.profile?.role!=="admin")return;
+ const dialog=$("searchDialog");
+ $("globalSearchInput").value="";
+ renderGlobalSearch();
+ if(!dialog.open)dialog.showModal();
+ $("globalSearchInput").focus();
+}
+function closeGlobalSearch(){if($("searchDialog").open)$("searchDialog").close()}
 document.addEventListener("click",async e=>{
+ const globalView=e.target.closest("[data-global-view]");
+ if(globalView){closeGlobalSearch();navigate(globalView.dataset.globalView);return}
+ const globalItem=e.target.closest("[data-global-item]");
+ if(globalItem){closeGlobalSearch();chooseItem(globalItem.dataset.globalItem,globalItem.dataset.id);return}
  const nav=e.target.closest("[data-view]");if(nav){navigate(nav.dataset.view);return}
  const card=e.target.closest("[data-go]");if(card){navigate(card.dataset.go);return}
  const target=e.target.closest("[data-item]");if(target){chooseItem(target.dataset.item,target.dataset.id);return}
@@ -445,6 +495,7 @@ document.addEventListener("click",async e=>{
  if(act==="video-grants"){videoPermissionEditor(S.videos.find(v=>v.id===action.dataset.id));return}
 });
 document.addEventListener("input",e=>{
+ if(e.target.id==="globalSearchInput"){renderGlobalSearch();return}
  if(e.target.id==="searchInput"){
   const value=e.target.value,position=e.target.selectionStart;
   S.search=value;render();const node=$("searchInput");if(node){node.focus();try{node.setSelectionRange(position,position)}catch(_){}}}
@@ -468,9 +519,19 @@ $("drawerShade").addEventListener("click",hideDrawer);
 $("menuToggle").addEventListener("click",()=>{$("sidebar").classList.toggle("open");$("mobileShade").classList.toggle("show")});
 $("mobileShade").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("mobileShade").classList.remove("show")});
 $("refreshBtn").addEventListener("click",refresh);
+$("openSearch").addEventListener("click",openGlobalSearch);
+$("globalSearchInput").addEventListener("keydown",e=>{
+ if(e.key==="Enter"){
+  const first=$("globalSearchResults").querySelector("button");
+  if(first){e.preventDefault();first.click()}
+ }
+});
 $("topAddBtn").addEventListener("click",()=>editorItem("task",null));
 $("logoutBtn").addEventListener("click",async()=>{try{requireData(await sb.auth.signOut());S.profile=null;S.user=null;login("התנתקת בהצלחה.",true)}catch(err){toast("ההתנתקות נכשלה",true)}});
-document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.drawer)hideDrawer()});
+document.addEventListener("keydown",e=>{
+ if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();openGlobalSearch();return}
+ if(e.key==="Escape"&&S.drawer)hideDrawer();
+});
 try{const wanted=new URLSearchParams(location.search).get("view");if(vlabels[wanted])S.view=wanted}catch(_){}
 init();
 })();
