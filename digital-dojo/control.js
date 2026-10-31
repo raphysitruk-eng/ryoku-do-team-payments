@@ -89,7 +89,15 @@ async function refresh(){
  let results=await Promise.allSettled(jobs.map(x=>x[1]()));
  results.forEach((r,i)=>{
   let key=jobs[i][0];
-  if(r.status==="rejected"){S.fail[key]=String(r.reason?.message||r.reason);return}
+  if(r.status==="rejected"){
+   S.fail[key]=String(r.reason?.message||r.reason);
+   if(key==="stats")S.stats={};
+   else if(key==="identity")S.identity={};
+   else if(key==="videos")S.videos=[];
+   else if(["rankGrants","groupGrants","profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=[];
+   else S.sets[key]=[];
+   return;
+  }
   delete S.fail[key];const data=r.value;
   if(key==="stats")S.stats=data;
   else if(key==="identity")S.identity=data;
@@ -480,6 +488,7 @@ async function saveGroup(form){
  S.sets.groups=await listed("groups");hideDrawer(true);render();toast("פרטי הקבוצה נשמרו");
 }
 async function attendanceEditor(session){
+ if(S.fail.memberships||S.fail.students){toast("רשימות החניכים או השיוכים אינן זמינות. רענן את המערכת.",true);return}
  const group=rows("groups").find(x=>x.id===session.group_id);
  const eligible=rows("memberships").filter(m=>m.group_id===session.group_id&&m.status==="active"&&
  (!m.starts_on||session.training_date>=m.starts_on)&&(!m.ends_on||session.training_date<=m.ends_on))
@@ -549,6 +558,7 @@ function videoEditor(v){
 }
 function videoPermissionEditor(v){
  if(!v)return toast("הסרטון אינו נמצא",true);
+ if(S.fail.rankGrants||S.fail.groupGrants||S.fail.groups)return toast("נתוני ההרשאות לא נטענו. נסה לרענן לפני עריכה.",true);
  const grantedRanks=S.rankGrants.filter(x=>x.video_id===v.id).map(x=>x.rank_key);
  const grantedGroups=S.groupGrants.filter(x=>x.video_id===v.id).map(x=>x.group_id);
  const ranks=RANKS.map(x=>'<label class="check-choice"><input type="checkbox" name="rank" value="'+H(x[0])+'"'+(grantedRanks.includes(x[0])?" checked":"")+'>'+H(x[1])+'</label>').join("");
@@ -561,6 +571,7 @@ function videoPermissionEditor(v){
  showDrawer("הרשאות צפייה",body,v.id,"video-grants");
 }
 async function saveVideoGrants(form){
+ if(S.fail.rankGrants||S.fail.groupGrants||S.fail.groups)throw Error("לא ניתן לשמור הרשאות כאשר הנתונים לא נטענו");
  const id=S.drawer?.id;if(!S.videos.some(v=>v.id===id))throw Error("לא נמצא סרטון");
  const f=new FormData(form);
  const ranks=[...new Set(f.getAll("rank").map(String))];
