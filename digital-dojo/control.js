@@ -18,6 +18,12 @@ const rows=kind=>asArr(S.sets[kind==='lead'?'leads':kind==='task'?'tasks':kind])
 const errorOf=kind=>S.fail[kind]||"";
 const nameChild=c=>[c.first_name,c.last_name].filter(Boolean).join(" ")||"ללא שם";
 const nameGroup=id=>rows("groups").find(g=>g.id===id)?.name||"—";
+const localDateTime=d=>{
+ if(!d)return "";
+ const date=new Date(d);if(!Number.isFinite(date.getTime()))return "";
+ const fields=Object.fromEntries(new Intl.DateTimeFormat("en-GB",{timeZone:"Asia/Jerusalem",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",hourCycle:"h23"}).formatToParts(date).map(p=>[p.type,p.value]));
+ return fields.year+"-"+fields.month+"-"+fields.day+"T"+fields.hour+":"+fields.minute;
+};
 const formatDate=d=>{if(!d)return"—";let x=new Date(d);return Number.isNaN(x.getTime())?"—":x.toLocaleDateString("he-IL",{day:"numeric",month:"short",year:"numeric"})};
 const formatTime=d=>{if(!d)return"—";let x=new Date(d);return Number.isNaN(x.getTime())?"—":x.toLocaleString("he-IL",{dateStyle:"short",timeStyle:"short"})};
 const tag=(text,kind="")=>'<span class="tag '+H(kind)+'">'+H(text)+'</span>';
@@ -335,7 +341,7 @@ function editorItem(kind,x){
  '<div class="field"><label>סניף</label><input name="branch" value="'+H(x?.branch||"")+'" maxlength="80"></div></div>'+
  (isLead?'<div class="field"><label>סיבת סגירה, אם סוגרים פנייה</label><input name="loss_reason" value="'+H(data.loss_reason||"")+'"></div>'+
  '<div class="field"><label>אסמכתת רישום, אם מסמנים נרשם</label><input name="enrollment_reference" value="'+H(data.enrollment_reference||"")+'"></div>':
- '<div class="field"><label>תאריך יעד</label><input type="datetime-local" name="due_at" value="'+H(x?.due_at?new Date(x.due_at).toISOString().slice(0,16):"")+'"></div>')+
+ '<div class="field"><label>תאריך יעד</label><input type="datetime-local" name="due_at" value="'+H(x?.due_at?localDateTime(x.due_at):"")+'"></div>')+
  '<p class="muted-note">הנתונים הקיימים נשמרים. השינוי עובר דרך מנגנון הבקרה והיומן של האקדמיה.</p>'+
  '<button type="submit" class="btn primary full">'+I("check")+' שמור שינויים</button></form>';
  showDrawer(x?.title||(isLead?"פנייה חדשה":"משימה חדשה"),body,x?.id||null,kind);
