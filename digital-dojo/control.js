@@ -327,25 +327,97 @@ function chooseItem(kind,id){
  if(!x)return toast("לא ניתן למצוא את הפריט",true);
  if(kind==="task"||kind==="lead"){editorItem(kind,x);return}
  if(kind==="video"){videoEditor(x);return}
- if(kind==="student"){
-  let body='<div class="drawer-section"><h3>'+H(nameChild(x))+'</h3><p>סניף: '+H(x.branch||"—")+' · קבוצה: '+H(x.group_name||"—")+'</p><p>חגורה נוכחית: '+H(x.current_rank||"—")+' · דרגה הבאה: '+H(x.next_rank||"—")+'</p></div>'+
-  panel("פרטי קשר",'<p>טלפון: '+H(x.contact_phone||"לא הוגדר")+'</p><p>דוא״ל: '+H(x.contact_email||"לא הוגדר")+'</p>');
-  showDrawer(nameChild(x),body,x.id,kind);return
- }
- if(kind==="group"){
-  const count=rows("memberships").filter(m=>m.group_id===x.id&&m.status==="active").length;
-  let body='<div class="drawer-section"><h3>'+H(x.name)+'</h3><p>סניף: '+H(x.branch||"—")+'</p><p>חניכים פעילים בקבוצה: '+count+'</p><p>קיבולת: '+H(x.capacity??"—")+'</p></div>';
-  showDrawer(x.name,body,x.id,kind);return;
- }
- if(kind==="session"){
-  showDrawer(nameGroup(x.group_id)+" · "+x.training_date,'<div class="loading-canvas"><div class="spinner"></div>טוען נוכחות…</div>',id,kind);
-  command("list",{kind:"attendance",session_id:x.id}).then(res=>{
-   if(!S.drawer||S.drawer.id!==id)return;
-   const a=asArr(res.items),list=a.map(z=>'<div class="subrow"><strong>'+H(nameChild(rows("students").find(c=>c.id===z.child_id)||{}))+'</strong>'+tag(z.status||"לא מסומן")+'</div>').join("");
-   $("drawerBody").innerHTML=a.length?list:empty("אין רישומי נוכחות","לא נמצאו רישומים למפגש.");
-  }).catch(err=>{$("drawerBody").innerHTML=message(err.message||"לא ניתן לטעון נוכחות")});return;
- }
+ if(kind==="student"){studentEditor(x);return}
+ if(kind==="group"){groupEditor(x);return}
+ if(kind==="session"){attendanceEditor(x);return}
+
 }
+
+function studentEditor(x){
+ const assigned=rows("memberships").filter(m=>m.child_id===x.id&&m.status==="active").map(m=>nameGroup(m.group_id));
+ const form='<form class="form-stack" id="studentForm">'+
+ '<div class="field-row"><div class="field"><label for="firstName">שם פרטי</label><input id="firstName" name="first_name" maxlength="80" required value="'+H(x.first_name||"")+'"></div>'+
+ '<div class="field"><label for="lastName">שם משפחה</label><input id="lastName" name="last_name" maxlength="80" value="'+H(x.last_name||"")+'"></div></div>'+
+ '<div class="field-row"><div class="field"><label for="studentBranch">סניף</label><input id="studentBranch" name="branch" maxlength="100" value="'+H(x.branch||"")+'"></div>'+
+ '<div class="field"><label for="studentGroup">שם קבוצה ברשומה</label><input id="studentGroup" name="group_name" maxlength="100" value="'+H(x.group_name||"")+'"></div></div>'+
+ '<div class="field"><label for="contactPhone">טלפון קשר</label><input id="contactPhone" name="contact_phone" type="tel" maxlength="30" value="'+H(x.contact_phone||"")+'"></div>'+
+ '<div class="field"><label for="contactEmail">דוא״ל קשר</label><input id="contactEmail" name="contact_email" type="email" maxlength="254" value="'+H(x.contact_email||"")+'"></div>'+
+ '<label class="check-choice"><input type="checkbox" name="active" '+(x.active?"checked":"")+'> חניך פעיל</label>'+
+ '<div class="warning-box">דרגה נוכחית: '+H(x.current_rank||"לא הוגדרה")+'. שיוך רשמי לחוגים: '+H(assigned.join(", ")||"אין שיוך פעיל")+'. עדכון שם הקבוצה ברשומה אינו מחליף חברות רשמית או חיוב חודשי.</div>'+
+ '<button class="btn primary full" type="submit">'+I("check")+' שמור פרטי חניך</button></form>';
+ showDrawer(nameChild(x),form,x.id,"student");
+}
+async function saveStudent(form){
+ const x=rows("students").find(z=>z.id===S.drawer?.id);if(!x)throw Error("רשומת החניך אינה זמינה");
+ const f=new FormData(form),first=String(f.get("first_name")||"").trim(),last=String(f.get("last_name")||"").trim();
+ if(!first||first.length>80||last.length>80)throw Error("בדוק את שם החניך");
+ const payload={child_id:x.id,first_name:first,last_name:last,branch:String(f.get("branch")||"").trim(),
+ group_name:String(f.get("group_name")||"").trim(),contact_phone:String(f.get("contact_phone")||"").trim(),
+ contact_email:String(f.get("contact_email")||"").trim(),active:f.has("active")};
+ await command("student_update",payload,crypto.randomUUID());
+ S.sets.students=await listed("students");hideDrawer();render();toast("פרטי החניך עודכנו");
+}
+function groupEditor(g){
+ const count=rows("memberships").filter(m=>m.group_id===g.id&&m.status==="active").length;
+ const f='<form class="form-stack" id="groupForm">'+
+ '<div class="field"><label>שם קבוצה</label><input name="name" maxlength="100" required value="'+H(g.name)+'"></div>'+
+ '<div class="field"><label>סניף</label><input readonly value="'+H(g.branch)+'"><p class="muted-note">מעבר קבוצה לסניף אחר דורש טיפול נפרד בשיוכי החניכים.</p></div>'+
+ '<div class="field"><label>קיבולת מרבית</label><input name="capacity" type="number" min="1" max="1000" value="'+H(g.capacity??"")+'" placeholder="ללא הגבלה"></div>'+
+ '<label class="check-choice"><input type="checkbox" name="active" '+(g.active?"checked":"")+'> קבוצה פעילה</label>'+
+ '<div class="warning-box">מספר שיוכים פעילים: '+count+'. שינוי הקיבולת אינו משנה את חיובי החניכים. לוח האימונים הקיים יישמר.</div>'+
+ '<button type="submit" class="btn primary full">'+I("check")+' שמור קבוצה</button></form>';
+ showDrawer(g.name,f,g.id,"group");
+}
+async function saveGroup(form){
+ const g=rows("groups").find(z=>z.id===S.drawer?.id);if(!g)throw Error("לא נמצאה קבוצה");
+ const f=new FormData(form),name=String(f.get("name")||"").trim(),cap=String(f.get("capacity")||"").trim();
+ if(name.length<1||name.length>100)throw Error("שם הקבוצה אינו תקין");
+ if(cap&&(!Number.isInteger(Number(cap))||Number(cap)<1||Number(cap)>1000))throw Error("קיבולת חייבת להיות בין 1 ל־1000");
+ await command("group_save",{id:g.id,rev:g.rev,code:g.code,name,branch:g.branch,
+ schedule:g.schedule||[],capacity:cap||null,active:f.has("active")},crypto.randomUUID());
+ S.sets.groups=await listed("groups");hideDrawer();render();toast("פרטי הקבוצה נשמרו");
+}
+async function attendanceEditor(session){
+ const group=rows("groups").find(x=>x.id===session.group_id);
+ const eligible=rows("memberships").filter(m=>m.group_id===session.group_id&&m.status==="active"&&
+ (!m.starts_on||session.training_date>=m.starts_on)&&(!m.ends_on||session.training_date<=m.ends_on))
+ .map(m=>rows("students").find(x=>x.id===m.child_id)).filter(x=>x&&x.active);
+ showDrawer((group?.name||"קבוצה")+" · "+session.training_date,
+ '<div class="loading-canvas"><div class="spinner"></div>טוען רישומי נוכחות…</div>',session.id,"session");
+ try{
+  const response=await command("list",{kind:"attendance",session_id:session.id});
+  if(S.drawer?.id!==session.id)return;
+  const saved=new Map(asArr(response.items).map(m=>[m.child_id,m]));
+  S.attendance={id:session.id,marks:saved,eligible:eligible.map(x=>x.id)};
+  const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Jerusalem",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+  const locked=session.status==="completed"||session.status==="cancelled"||session.training_date>today;
+  const trs=eligible.map(x=>{
+   const mark=saved.get(x.id)||{};
+   return '<div class="attendance-person"><strong>'+H(nameChild(x))+'</strong><select name="mark_'+H(x.id)+'" aria-label="נוכחות '+H(nameChild(x))+'" '+(locked?"disabled":"")+'>'+
+    [["","טרם סומן"],["present","נכח"],["absent","נעדר"],["excused","היעדרות מוצדקת"]].map(o=>opt(o[0],o[1],mark.status||"")).join("")+'</select></div>';
+  });
+  $("drawerBody").innerHTML='<form class="form-stack" id="attendanceForm"><p class="muted-note">'+H(session.training_date)+' · '+H((session.starts_at||"").slice(0,5))+'–'+H((session.ends_at||"").slice(0,5))+'</p>'+
+   (eligible.length?trs.join(""):empty("אין חניכים משויכים","יש לבדוק את רישומי השיוך לקבוצה"))+
+   (locked?message("מפגש שהושלם, בוטל או נמצא בעתיד: הצפייה בלבד."):
+    '<button class="btn secondary full" type="submit">שמור סימוני נוכחות</button>'+
+    '<button class="btn primary full" type="button" data-action="finalize-attendance">שמור וסיים אימון</button>')+'</form>';
+ }catch(err){if(S.drawer?.id===session.id)$("drawerBody").innerHTML=message("שגיאה בטעינת נוכחות: "+(err.message||""))}
+}
+async function saveAttendance(form,finalize){
+ const session=rows("sessions").find(x=>x.id===S.drawer?.id),snapshot=S.attendance;
+ if(!session||!snapshot||snapshot.id!==session.id)throw Error("נתוני האימון אינם זמינים");
+ const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Jerusalem",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+ if(session.status==="completed"||session.status==="cancelled"||session.training_date>today)throw Error("לא ניתן לעדכן אימון נעול או עתידי");
+ if(!snapshot.eligible.length)throw Error("אין חניכים זכאים לסימון");
+ const f=new FormData(form),marks=snapshot.eligible.map(child_id=>{
+  const status=String(f.get("mark_"+child_id)||"");
+  if(!["present","absent","excused"].includes(status))throw Error("יש לסמן נוכחות לכל החניכים");
+  return {child_id,status,note:snapshot.marks.get(child_id)?.note||""};
+ });
+ await command("attendance_save",{session_id:session.id,rev:session.rev,marks,finalize:!!finalize},crypto.randomUUID());
+ S.sets.sessions=await listed("sessions");hideDrawer();render();toast(finalize?"האימון הושלם והנוכחות נשמרה":"סימוני הנוכחות נשמרו");
+}
+
 function editorItem(kind,x){
  const isLead=kind==="lead",options=isLead?leadStages:taskStages;
  const data=x?.data||{},selected=x?.status||(isLead?"new":"open");
@@ -440,7 +512,7 @@ async function saveForm(form){
  if(S.busy)return;
  S.busy=true;let buttonNode=form.querySelector('button[type="submit"]');
  if(buttonNode)buttonNode.disabled=true;
- try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form);else if(form.id==="videoGrantsForm")await saveVideoGrants(form)}
+ try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form);else if(form.id==="videoGrantsForm")await saveVideoGrants(form);else if(form.id==="studentForm")await saveStudent(form);else if(form.id==="groupForm")await saveGroup(form);else if(form.id==="attendanceForm")await saveAttendance(form,false)}
  catch(err){toast(err.message||"שמירה נכשלה",true)}
  finally{S.busy=false;if(buttonNode)buttonNode.disabled=false}
 }
@@ -504,6 +576,12 @@ document.addEventListener("click",async e=>{
  const act=action.dataset.action;
  if(act==="refresh"){await refresh();toast("הנתונים עודכנו");return}
  if(act==="new-task"){editorItem("task",null);return}
+ if(act==="finalize-attendance"){
+  const form=document.getElementById("attendanceForm");if(!form||S.busy)return;
+  if(!window.confirm("לסיים את האימון ולשמור את כל סימוני הנוכחות? לא ניתן לשנות אימון לאחר סיום."))return;
+  S.busy=true;try{await saveAttendance(form,true)}catch(err){toast(err.message||"שמירת הנוכחות נכשלה",true)}finally{S.busy=false}
+  return;
+ }
  if(act==="new-video"){videoEditor(null);return}
  if(act==="video-grants"){videoPermissionEditor(S.videos.find(v=>v.id===action.dataset.id));return}
 });
@@ -515,7 +593,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("submit",async e=>{
  const form=e.target;
- if(!["loginForm","itemForm","videoForm","videoGrantsForm"].includes(form.id))return;
+ if(!["loginForm","itemForm","videoForm","videoGrantsForm","studentForm","groupForm","attendanceForm"].includes(form.id))return;
  e.preventDefault();
  if(form.id==="loginForm"){
   let btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
