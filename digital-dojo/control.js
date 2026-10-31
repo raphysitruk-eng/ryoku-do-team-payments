@@ -6,11 +6,11 @@ const sb=window.supabase?.createClient(API,KEY,{auth:{persistSession:true,autoRe
 const $=id=>document.getElementById(id);
 const H=x=>String(x==null?"":x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const I=name=>'<svg aria-hidden="true"><use href="#i-'+name+'"></use></svg>';
-const vlabels={overview:"לוח בקרה",students:"חניכים והורים",groups:"סניפים וקבוצות",sessions:"אימונים ונוכחות",leads:"פניות והרשמות",tasks:"משימות ומעקב",videos:"ספריית הדרכה",payments:"כספים וחיובים",content:"תוכן, ציוד ואירועים",integrations:"חיבורים ותשתיות"};
+const vlabels={overview:"לוח בקרה",students:"חניכים והורים",groups:"סניפים וקבוצות",sessions:"אימונים ונוכחות",leads:"פניות והרשמות",tasks:"משימות ומעקב",videos:"ספריית הדרכה",payments:"כספים וחיובים",content:"תוכן, ציוד ואירועים",integrations:"חיבורים ותשתיות",access:"משתמשים והרשאות",audit:"יומן פעילות"};
 const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
 const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
 const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
-const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],rankGrants:[],groupGrants:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
@@ -79,7 +79,12 @@ async function refresh(){
   ["leads",()=>listed("lead")],["tasks",()=>listed("task")],
   ["videos",()=>sb.from("training_videos").select("id,title_he,description_he,category,provider,provider_asset_id,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000).then(requireData)],
   ["rankGrants",()=>sb.from("training_video_rank_grants").select("video_id,rank_key").limit(1000).then(requireData)],
-  ["groupGrants",()=>sb.from("training_video_group_grants").select("video_id,group_id").limit(1000).then(requireData)]
+  ["groupGrants",()=>sb.from("training_video_group_grants").select("video_id,group_id").limit(1000).then(requireData)],
+  ["profiles",()=>sb.from("profiles").select("id,full_name,email,phone,role,approval_status").order("full_name").limit(1000).then(requireData)],
+  ["profileGrants",()=>sb.from("training_video_profile_grants").select("*").limit(1000).then(requireData)],
+  ["childGrants",()=>sb.from("training_video_child_grants").select("*").limit(1000).then(requireData)],
+  ["blocks",()=>sb.from("training_library_blocks").select("*").limit(1000).then(requireData)],
+  ["audit",()=>sb.from("training_video_audit").select("id,changed_at,actor,table_name,action").order("id",{ascending:false}).limit(150).then(requireData)]
  ];
  let results=await Promise.allSettled(jobs.map(x=>x[1]()));
  results.forEach((r,i)=>{
@@ -91,6 +96,7 @@ async function refresh(){
   else if(key==="videos")S.videos=asArr(data);
   else if(key==="rankGrants")S.rankGrants=asArr(data);
   else if(key==="groupGrants")S.groupGrants=asArr(data);
+  else if(["profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=asArr(data);
   else S.sets[key]=asArr(data);
  });
  $("navVideoCount").textContent=String(S.videos.length);
@@ -114,7 +120,7 @@ function navigate(view){
 function render(){
  $("currentPageLabel").textContent=vlabels[S.view];
  document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===S.view));
- const pages={overview:overview,students:students,groups:groups,sessions:sessions,leads:leads,tasks:tasks,videos:videos,payments:payments,content:content,integrations:integrations};
+ const pages={overview:overview,students:students,groups:groups,sessions:sessions,leads:leads,tasks:tasks,videos:videos,payments:payments,content:content,integrations:integrations,access:access,audit:auditPage};
  $("content").innerHTML=pages[S.view]();
 }
 function filtered(list,getText){const q=S.search.trim().toLowerCase();return q?list.filter(x=>String(getText(x)).toLowerCase().includes(q)):list}
@@ -313,6 +319,93 @@ function integrations(){
  '<a class="btn secondary" target="_blank" rel="noopener noreferrer" href="'+H(m.url)+'">'+I("external")+' מעבר לשירות</a></div>').join("")+'</div>'+
  message("איחוד חזותי ואיחוד כניסת מנהל למודולים מבוססי Supabase אינם שקולים עדיין לאיחוד מלא של ממשקי ה־API של Wix, WhatsApp וספקי הסליקה. הם ימשיכו לפעול במערכותיהם עד להשלמת החיבור.");
 }
+
+function access(){
+ const members=filtered(S.profiles,p=>[p.full_name,p.email,p.phone,p.role,p.approval_status].join(" ").toLowerCase());
+ const blocked=new Set(S.blocks.filter(x=>x.blocked).map(x=>x.profile_id));
+ const list=members.map(p=>{
+  const count=rows("students").filter(x=>x.parent_id===p.id).length;
+  return '<tr><td><strong>'+H(p.full_name||p.email||"ללא שם")+'</strong><small style="display:block" class="muted">'+H(p.email||"")+'</small></td>'+
+   '<td>'+H(p.role||"—")+'</td><td>'+H(p.approval_status||"—")+'</td>'+
+   '<td>'+count+'</td><td>'+tag(blocked.has(p.id)?"חסום בספרייה":"ללא חסימה",blocked.has(p.id)?"blocked":"allow")+'</td>'+
+   '<td><button type="button" class="mini-action" data-item="profile" data-id="'+H(p.id)+'">נהל גישה</button></td></tr>';
+ });
+ return header("משתמשים והרשאות","ניהול חשבונות, חריגות גישה וחסימות ספריית ההדרכה")+
+ incomplete("profiles")+incomplete("blocks")+incomplete("profileGrants")+
+ panel("משתמשים מורשים וחשבונות",searchField("שם, דוא״ל, טלפון או הרשאה")+
+ (list.length?table(["חשבון","תפקיד","אישור","חניכים","ספרייה","ניהול"],list):empty("אין משתמשים מתאימים","")));
+}
+function auditPage(){
+ const a=filtered(S.audit,x=>[x.action,x.table_name,x.actor,x.changed_at].join(" "));
+ const trs=a.map(x=>'<tr><td>'+H(formatTime(x.changed_at))+'</td><td>'+H(({INSERT:"יצירה",UPDATE:"עדכון",DELETE:"מחיקה"})[x.action]||x.action)+'</td>'+
+ '<td>'+H(x.table_name||"—")+'</td><td>'+H(S.profiles.find(p=>p.id===x.actor)?.full_name||"מנהל")+'</td></tr>');
+ return header("יומן פעילות","150 אירועי שינוי אחרונים בספריית ההדרכה וההרשאות")+
+ incomplete("audit")+panel("שינויים מתועדים",searchField("סוג פעולה, טבלה או משתמש")+
+ (trs.length?table(["תאריך","פעולה","רכיב","בוצע על ידי"],trs):empty("אין אירועים להצגה","")));
+}
+function profileEditor(p){
+ const kids=rows("students").filter(c=>c.parent_id===p.id);
+ const current=S.blocks.some(b=>b.profile_id===p.id&&b.blocked);
+ const overrides=S.profileGrants.filter(x=>x.profile_id===p.id).map(x=>({who:"החשבון",id:p.id,type:"profile",...x})).concat(S.childGrants.filter(x=>kids.some(c=>c.id===x.child_id)).map(x=>({who:nameChild(kids.find(c=>c.id===x.child_id)||{}),id:x.child_id,type:"child",...x})));
+ const list=overrides.length?overrides.map(x=>'<div class="subrow"><div><strong>'+H(S.videos.find(v=>v.id===x.video_id)?.title_he||"סרטון")+'</strong><small class="muted" style="display:block">'+H(x.who)+" · "+H(x.decision==="allow"?"גישה":"חסימה")+(x.expires_at?" · עד "+H(formatDate(x.expires_at)):"")+'</small></div>'+
+ '<button type="button" class="mini-action" data-action="delete-personal-override" data-scope="'+H(x.type)+'" data-id="'+H(x.id)+'" data-video="'+H(x.video_id)+'">הסר</button></div>').join(""):empty("אין החרגות אישיות","");
+ const self=p.id===S.user.id;
+ const scopeOptions=[["profile:"+p.id,"כל החשבון"]].concat(kids.map(c=>["child:"+c.id,nameChild(c)]));
+ const form='<form id="personalGrantForm" class="form-stack">'+
+ '<div class="field"><label>סרטון</label><select name="video_id" required>'+S.videos.map(v=>opt(v.id,v.title_he,"")).join("")+'</select></div>'+
+ '<div class="field"><label>חשבון או חניך</label><select name="scope">'+scopeOptions.map(x=>opt(x[0],x[1],"")).join("")+'</select></div>'+
+ '<div class="field-row"><div class="field"><label>הרשאה</label><select name="decision">'+[["allow","אפשר צפייה"],["deny","מנע צפייה"],["clear","נקה החרגה"]].map(x=>opt(x[0],x[1],"allow")).join("")+'</select></div>'+
+ '<div class="field"><label>עד מועד (אופציונלי)</label><input type="datetime-local" name="expires_at"></div></div>'+
+ '<button type="submit" class="btn primary full">'+I("check")+' שמור חריגה</button></form>';
+ showDrawer(p.full_name||p.email||"פרטי משתמש",
+ '<div class="drawer-section"><strong>'+H(p.full_name||"")+'</strong><p class="muted-note">'+H(p.email||"")+' · '+H(p.role||"")+'</p>'+
+ tag(current?"גישה לספרייה חסומה":"גישה אינה חסומה",current?"blocked":"allow")+'</div>'+
+ '<h3 class="section-label">גישה פרטנית לסרטונים</h3>'+form+
+ '<div class="drawer-section"><h3>הרשאות קיימות</h3>'+list+'</div>'+
+ '<div class="danger-zone"><strong>חסימת גישה לספרייה כולה</strong><p class="muted-note">חסימה אינה מוחקת משתמשים ואינה משפיעה על תשלומים.</p>'+
+ '<button type="button" class="btn '+(current?"secondary":"danger")+'" data-action="toggle-profile-block" data-id="'+H(p.id)+'" '+(self?"disabled":"")+'>'+
+ (current?"בטל חסימת ספרייה":"חסום ספרייה לחשבון")+'</button></div>'+
+ (self?message("לא ניתן לחסום את חשבון המנהל המחובר."):""),p.id,"profile");
+}
+async function applyPersonalGrant(form){
+ const p=S.profiles.find(x=>x.id===S.drawer?.id);if(!p)throw Error("חשבון לא נמצא");
+ const f=new FormData(form),scope=String(f.get("scope")||""),video_id=String(f.get("video_id")||""),decision=String(f.get("decision")||"");
+ const match=scope.match(/^(profile|child):([a-f0-9-]{36})$/i);
+ if(!match||!S.videos.some(x=>x.id===video_id))throw Error("סרטון או חשבון אינם תקינים");
+ const kind=match[1],id=match[2],table=kind==="child"?"training_video_child_grants":"training_video_profile_grants",key=kind==="child"?"child_id":"profile_id";
+ if(kind==="profile"&&id!==p.id)throw Error("חשבון אינו תואם");
+ if(kind==="child"&&!rows("students").some(x=>x.id===id&&x.parent_id===p.id))throw Error("החניך אינו משויך לחשבון");
+ if(decision==="clear"){requireData(await sb.from(table).delete().eq("video_id",video_id).eq(key,id))}
+ else{
+  if(!["allow","deny"].includes(decision))throw Error("סוג הרשאה אינו תקין");
+  const raw=String(f.get("expires_at")||"").trim(),dt=raw?new Date(raw):null;
+  if(dt&&(!Number.isFinite(dt.getTime())||dt.getTime()<=Date.now()))throw Error("תאריך התפוגה חייב להיות בעתיד");
+  requireData(await sb.from(table).upsert({video_id,[key]:id,decision,expires_at:dt?dt.toISOString():null,
+   changed_by:S.user.id,updated_at:new Date().toISOString()},{onConflict:"video_id,"+key}));
+ }
+ await refresh();profileEditor(p);toast("ההרשאה האישית עודכנה");
+}
+async function toggleBlock(id){
+ if(id===S.user.id)throw Error("לא ניתן לחסום את חשבון המנהל");
+ if(!S.profiles.some(x=>x.id===id))throw Error("לא נמצא חשבון");
+ const current=S.blocks.some(x=>x.profile_id===id&&x.blocked);
+ if(!window.confirm(current?"לבטל את החסימה של חשבון זה?":"לחסום חשבון זה מגישה לספריית הסרטונים?"))return;
+ requireData(await sb.from("training_library_blocks").upsert({profile_id:id,blocked:!current,
+ changed_by:S.user.id,updated_at:new Date().toISOString()},{onConflict:"profile_id"}));
+ await refresh();const p=S.profiles.find(x=>x.id===id);if(p)profileEditor(p);
+ toast(current?"חסימת הספרייה בוטלה":"הגישה לספרייה נחסמה");
+}
+async function deleteOverride(type,id,video){
+ if(!["profile","child"].includes(type))throw Error("סוג הרשאה אינו מוכר");
+ const p=S.profiles.find(x=>x.id===S.drawer?.id);if(!p)throw Error("חשבון לא נמצא");
+ if(type==="profile"&&id!==p.id)throw Error("חשבון לא תואם");
+ if(type==="child"&&!rows("students").some(x=>x.parent_id===p.id&&x.id===id))throw Error("חניך לא תואם");
+ if(!window.confirm("להסיר את ההרשאה האישית לסרטון?"))return;
+ const table=type==="child"?"training_video_child_grants":"training_video_profile_grants",key=type==="child"?"child_id":"profile_id";
+ requireData(await sb.from(table).delete().eq(key,id).eq("video_id",video));
+ await refresh();profileEditor(p);toast("החריגה הוסרה");
+}
+
 function showDrawer(title,body,id,kind){
  S.drawer={id:id||null,kind:kind};
  $("drawerEyebrow").textContent="RYOKU-DO CONTROL CENTER";
@@ -327,6 +420,7 @@ function chooseItem(kind,id){
  if(!x)return toast("לא ניתן למצוא את הפריט",true);
  if(kind==="task"||kind==="lead"){editorItem(kind,x);return}
  if(kind==="video"){videoEditor(x);return}
+ if(kind==="profile"){profileEditor(x);return}
  if(kind==="student"){studentEditor(x);return}
  if(kind==="group"){groupEditor(x);return}
  if(kind==="session"){attendanceEditor(x);return}
@@ -512,7 +606,7 @@ async function saveForm(form){
  if(S.busy)return;
  S.busy=true;let buttonNode=form.querySelector('button[type="submit"]');
  if(buttonNode)buttonNode.disabled=true;
- try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form);else if(form.id==="videoGrantsForm")await saveVideoGrants(form);else if(form.id==="studentForm")await saveStudent(form);else if(form.id==="groupForm")await saveGroup(form);else if(form.id==="attendanceForm")await saveAttendance(form,false)}
+ try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form);else if(form.id==="videoGrantsForm")await saveVideoGrants(form);else if(form.id==="studentForm")await saveStudent(form);else if(form.id==="groupForm")await saveGroup(form);else if(form.id==="attendanceForm")await saveAttendance(form,false);else if(form.id==="personalGrantForm")await applyPersonalGrant(form)}
  catch(err){toast(err.message||"שמירה נכשלה",true)}
  finally{S.busy=false;if(buttonNode)buttonNode.disabled=false}
 }
@@ -522,7 +616,7 @@ const GLOBAL_PAGES=[
  ["groups","סניפים וקבוצות","book"],["sessions","אימונים ונוכחות","check"],
  ["leads","פניות והרשמות","search"],["tasks","משימות ומעקב","clock"],
  ["videos","ספריית הדרכה","film"],["payments","כספים וחיובים","shield"],
- ["content","תוכן, ציוד ואירועים","settings"],["integrations","חיבורים ותשתיות","external"]
+ ["content","תוכן, ציוד ואירועים","settings"],["access","משתמשים והרשאות","shield"],["audit","יומן פעילות","clock"],["integrations","חיבורים ותשתיות","external"]
 ];
 function globalMatches(query){
  const term=String(query||"").trim().toLocaleLowerCase("he-IL");
@@ -534,11 +628,12 @@ function globalMatches(query){
  ["lead",rows("leads"),x=>x.title+" "+x.branch,"פנייה","search"],
  ["task",rows("tasks"),x=>x.title+" "+x.branch,"משימה","clock"],
  ["video",S.videos,x=>x.title_he+" "+x.category,"סרטון","film"],
- ["group",rows("groups"),x=>x.name+" "+x.branch,"קבוצה","book"]
+ ["group",rows("groups"),x=>x.name+" "+x.branch,"קבוצה","book"],
+ ["profile",S.profiles,x=>x.full_name+" "+x.email,"משתמש","shield"]
  ].forEach(set=>{
   set[1].forEach(item=>{
    if(String(set[2](item)).toLocaleLowerCase("he-IL").includes(term)){
-    matches.push({label:set[0]==="student"?nameChild(item):set[0]==="group"?item.name:set[0]==="video"?item.title_he:item.title,meta:set[3],icon:set[4],kind:set[0],id:item.id});
+    matches.push({label:set[0]==="student"?nameChild(item):set[0]==="group"?item.name:set[0]==="video"?item.title_he:set[0]==="profile"?(item.full_name||item.email):item.title,meta:set[3],icon:set[4],kind:set[0],id:item.id});
    }
   });
  });
@@ -583,6 +678,8 @@ document.addEventListener("click",async e=>{
   return;
  }
  if(act==="new-video"){videoEditor(null);return}
+ if(act==="toggle-profile-block"){try{await toggleBlock(action.dataset.id)}catch(e){toast(e.message||"לא ניתן לעדכן חסימה",true)}return}
+ if(act==="delete-personal-override"){try{await deleteOverride(action.dataset.scope,action.dataset.id,action.dataset.video)}catch(e){toast(e.message||"לא ניתן להסיר הרשאה",true)}return}
  if(act==="video-grants"){videoPermissionEditor(S.videos.find(v=>v.id===action.dataset.id));return}
 });
 document.addEventListener("input",e=>{
@@ -593,7 +690,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("submit",async e=>{
  const form=e.target;
- if(!["loginForm","itemForm","videoForm","videoGrantsForm","studentForm","groupForm","attendanceForm"].includes(form.id))return;
+ if(!["loginForm","itemForm","videoForm","videoGrantsForm","studentForm","groupForm","attendanceForm","personalGrantForm"].includes(form.id))return;
  e.preventDefault();
  if(form.id==="loginForm"){
   let btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
