@@ -104,7 +104,8 @@ async function refresh(){
 }
 function navigate(view){
  if(!vlabels[view])return;
- S.view=view;S.search="";S.page=0;S.drawer=null;hideDrawer();
+ if(S.drawer&&!hideDrawer())return;
+ S.view=view;S.search="";S.page=0;
  const url=new URL(location.href);url.searchParams.set("view",view);
  history.replaceState(null,"",url.pathname+url.search);
  document.querySelectorAll("[data-view]").forEach(el=>{
@@ -407,6 +408,7 @@ async function deleteOverride(type,id,video){
 }
 
 function showDrawer(title,body,id,kind){
+ S.lastFocus=document.activeElement;S.dirty=false;
  S.drawer={id:id||null,kind:kind};
  $("drawerEyebrow").textContent="RYOKU-DO CONTROL CENTER";
  $("drawerTitle").textContent=title;
@@ -414,7 +416,13 @@ function showDrawer(title,body,id,kind){
  $("drawer").classList.remove("hide");$("drawerShade").classList.remove("hide");
  document.body.style.overflow="hidden";$("drawerClose").focus();
 }
-function hideDrawer(){$("drawer").classList.add("hide");$("drawerShade").classList.add("hide");document.body.style.overflow="";S.drawer=null}
+function hideDrawer(force=false){
+ if(S.drawer&&S.dirty&&!force&&!window.confirm("יש שינויים שלא נשמרו. לצאת מהחלונית ולבטל אותם?"))return false;
+ $("drawer").classList.add("hide");$("drawerShade").classList.add("hide");
+ document.body.style.overflow="";S.drawer=null;S.dirty=false;
+ try{if(S.lastFocus?.isConnected)S.lastFocus.focus()}catch(_){}
+ return true;
+}
 function chooseItem(kind,id){
  let a=kind==="video"?S.videos:kind==="profile"?S.profiles:rows(kind),x=a.find(t=>t.id===id);
  if(!x)return toast("לא ניתן למצוא את הפריט",true);
@@ -449,7 +457,7 @@ async function saveStudent(form){
  group_name:String(f.get("group_name")||"").trim(),contact_phone:String(f.get("contact_phone")||"").trim(),
  contact_email:String(f.get("contact_email")||"").trim(),active:f.has("active")};
  await command("student_update",payload,crypto.randomUUID());
- S.sets.students=await listed("students");hideDrawer();render();toast("פרטי החניך עודכנו");
+ S.sets.students=await listed("students");hideDrawer(true);render();toast("פרטי החניך עודכנו");
 }
 function groupEditor(g){
  const count=rows("memberships").filter(m=>m.group_id===g.id&&m.status==="active").length;
@@ -469,7 +477,7 @@ async function saveGroup(form){
  if(cap&&(!Number.isInteger(Number(cap))||Number(cap)<1||Number(cap)>1000))throw Error("קיבולת חייבת להיות בין 1 ל־1000");
  await command("group_save",{id:g.id,rev:g.rev,code:g.code,name,branch:g.branch,
  schedule:g.schedule||[],capacity:cap||null,active:f.has("active")},crypto.randomUUID());
- S.sets.groups=await listed("groups");hideDrawer();render();toast("פרטי הקבוצה נשמרו");
+ S.sets.groups=await listed("groups");hideDrawer(true);render();toast("פרטי הקבוצה נשמרו");
 }
 async function attendanceEditor(session){
  const group=rows("groups").find(x=>x.id===session.group_id);
@@ -509,7 +517,7 @@ async function saveAttendance(form,finalize){
   return {child_id,status,note:snapshot.marks.get(child_id)?.note||""};
  });
  await command("attendance_save",{session_id:session.id,rev:session.rev,marks,finalize:!!finalize},crypto.randomUUID());
- S.sets.sessions=await listed("sessions");hideDrawer();render();toast(finalize?"האימון הושלם והנוכחות נשמרה":"סימוני הנוכחות נשמרו");
+ S.sets.sessions=await listed("sessions");hideDrawer(true);render();toast(finalize?"האימון הושלם והנוכחות נשמרה":"סימוני הנוכחות נשמרו");
 }
 
 function editorItem(kind,x){
@@ -558,7 +566,7 @@ async function saveVideoGrants(form){
  const ranks=[...new Set(f.getAll("rank").map(String))];
  const groups=[...new Set(f.getAll("group").map(String))];
  const result=requireData(await sb.rpc("training_video_set_grants",{p_video_id:id,p_ranks:ranks,p_groups:groups}));
- await refresh();hideDrawer();toast("כל הרשאות הסרטון נשמרו בעסקה אחת");
+ await refresh();hideDrawer(true);toast("כל הרשאות הסרטון נשמרו בעסקה אחת");
  return result;
 }
 
@@ -585,7 +593,7 @@ async function saveItem(form){
  const payload={kind,id:old?.id||null,rev:old?.rev,title,status,branch,child_id:old?.child_id||null,group_id:old?.group_id||null,related_id:old?.related_id||null,owner_id:old?.owner_id||null,due_at:kind==="task"?due:(old?.due_at||null),data};
  await command("item_save",payload,crypto.randomUUID());
  S.sets[kind==='lead'?'leads':'tasks']=await listed(kind);
- hideDrawer();render();toast("השינויים נשמרו בהצלחה");
+ hideDrawer(true);render();toast("השינויים נשמרו בהצלחה");
 }
 async function saveVideo(form){
  const old=S.videos.find(v=>v.id===S.drawer?.id);
@@ -600,7 +608,7 @@ async function saveVideo(form){
   data.slug="video-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7);
   requireData(await sb.from("training_videos").insert(data).select("id").single());
  }
- await refresh();hideDrawer();toast(old?"פרטי הסרטון נשמרו":"הסרטון נוסף לספרייה");
+ await refresh();hideDrawer(true);toast(old?"פרטי הסרטון נשמרו":"הסרטון נוסף לספרייה");
 }
 async function saveForm(form){
  if(S.busy)return;
@@ -683,11 +691,13 @@ document.addEventListener("click",async e=>{
  if(act==="video-grants"){videoPermissionEditor(S.videos.find(v=>v.id===action.dataset.id));return}
 });
 document.addEventListener("input",e=>{
+ if(e.target.closest?.("#drawer form"))S.dirty=true;
  if(e.target.id==="globalSearchInput"){renderGlobalSearch();return}
  if(e.target.id==="searchInput"){
   const value=e.target.value,position=e.target.selectionStart;
   S.search=value;S.page=0;render();const node=$("searchInput");if(node){node.focus();try{node.setSelectionRange(position,position)}catch(_){}}}
 });
+document.addEventListener("change",e=>{if(e.target.closest?.("#drawer form"))S.dirty=true});
 document.addEventListener("submit",async e=>{
  const form=e.target;
  if(!["loginForm","itemForm","videoForm","videoGrantsForm","studentForm","groupForm","attendanceForm","personalGrantForm"].includes(form.id))return;
@@ -718,7 +728,14 @@ $("topAddBtn").addEventListener("click",()=>editorItem("task",null));
 $("logoutBtn").addEventListener("click",async()=>{try{requireData(await sb.auth.signOut());S.profile=null;S.user=null;login("התנתקת בהצלחה.",true)}catch(err){toast("ההתנתקות נכשלה",true)}});
 document.addEventListener("keydown",e=>{
  if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==="k"){e.preventDefault();openGlobalSearch();return}
- if(e.key==="Escape"&&S.drawer)hideDrawer();
+ if(e.key==="Escape"&&S.drawer){e.preventDefault();hideDrawer();return}
+ if(e.key==="Tab"&&S.drawer){
+  const els=[...$("drawer").querySelectorAll('button:not(:disabled),a[href],input:not(:disabled),select:not(:disabled),textarea:not(:disabled),[tabindex]:not([tabindex="-1"])')].filter(el=>!el.hidden&&el.getClientRects().length);
+  if(els.length){const first=els[0],last=els[els.length-1];
+   if(e.shiftKey&&document.activeElement===first){e.preventDefault();last.focus()}
+   else if(!e.shiftKey&&document.activeElement===last){e.preventDefault();first.focus()}
+  }
+ }
 });
 try{const wanted=new URLSearchParams(location.search).get("view");if(vlabels[wanted])S.view=wanted}catch(_){}
 init();
