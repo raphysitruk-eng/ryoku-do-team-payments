@@ -10,7 +10,7 @@ const vlabels={overview:"לוח בקרה",students:"חניכים והורים",r
 const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
 const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
 const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
-const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],roster:[],rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],roster:[],integrationHealth:null,rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
@@ -74,6 +74,7 @@ async function init(){
 async function refresh(){
  const jobs=[
   ["stats",()=>command("dashboard")],["identity",()=>command("identity")],
+  ["integrationHealth",()=>sb.functions.invoke("ryokudo-integration-status").then(requireData)],
   ["students",()=>listed("students")],["roster",()=>sb.rpc("ryokudo_roster_preview").then(requireData)],["groups",()=>listed("groups")],
   ["memberships",()=>listed("memberships")],["sessions",()=>listed("sessions")],
   ["leads",()=>listed("lead")],["tasks",()=>listed("task")],
@@ -95,6 +96,7 @@ async function refresh(){
    else if(key==="identity")S.identity={};
    else if(key==="videos")S.videos=[];
    else if(key==="roster")S.roster=[];
+   else if(key==="integrationHealth")S.integrationHealth=null;
    else if(["rankGrants","groupGrants","profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=[];
    else S.sets[key]=[];
    return;
@@ -104,6 +106,7 @@ async function refresh(){
   else if(key==="identity")S.identity=data;
   else if(key==="videos")S.videos=asArr(data);
   else if(key==="roster")S.roster=asArr(data.records);
+  else if(key==="integrationHealth")S.integrationHealth=data;
   else if(key==="rankGrants")S.rankGrants=asArr(data);
   else if(key==="groupGrants")S.groupGrants=asArr(data);
   else if(["profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=asArr(data);
@@ -184,7 +187,7 @@ function overview(){
  ["ניהול חניכים וקבוצות",!S.fail.students&&!S.fail.groups,"מידע מתוך Supabase"],
  ["ניהול ספריית הווידאו",!S.fail.videos,S.videos.length+" סרטונים בקטלוג"],
  ["כספים וחיובים",financeSecure,"נתונים מוגנים ב־MFA"],
- ["WhatsApp לשליחה לקבוצות",false,"החיבור לשיגור אוטומטי עדיין לא הושלם"]
+ ["WhatsApp לשליחה לקבוצות",S.integrationHealth?.whatsapp?.send_ready===true,S.integrationHealth?.whatsapp?.mode==="demo"?"שרת פעיל במצב הדגמה; לא שולח לקבוצות":"מצב שליחה אינו מאומת"]
  ];
  const syncPanel=panel("מפת מערכות",statuses.map(x=>
   '<div class="subrow"><div><strong>'+H(x[0])+'</strong><small class="muted" style="display:block">'+H(x[2])+'</small></div><span class="control-chip '+(x[1]?"":"warning")+'"><span class="dot"></span>'+(x[1]?"זמין":"מוגבל")+'</span></div>').join(""),
@@ -337,15 +340,22 @@ function content(){
  '<div class="report-grid">'+sections.join("")+'</div>';
 }
 function integrations(){
+ const health=S.integrationHealth;
+ const whatsapp=health?.whatsapp;
+ const liveWa=whatsapp?.send_ready===true;
+ const waMode=whatsapp?.mode==="demo"?"שרת פעיל במצב הדגמה":liveWa?"שליחה זמינה":"שליחה לא מאומתת";
  const modules=[
- {title:"אתר האקדמיה",name:"ryokudoacademy.com",status:"חיבור חלקי",note:"מערכת האתר הפעיל מנוהלת בנפרד. לא בוצעה עריכת דפים מאזור הניהול הזה.",url:"https://www.ryokudoacademy.com/management.html"},
+ {title:"אתר האקדמיה",name:"ryokudoacademy.com",status:health?.website?.online?"אתר זמין":"זמינות לא אומתה",note:"בדיקת זמינות חיה. עריכת האתר עדיין דורשת חיבור למקור האתר המארח; ניהול הממשק הקיים נעשה בנפרד.",url:"https://www.ryokudoacademy.com/management.html"},
  {title:"Supabase",name:"נתונים, משתמשים והרשאות",status:"מחובר",note:"ממשקי החניכים, הקבוצות, המשימות והוידאו משתמשים במידע כאן.",url:"https://supabase.com/dashboard/project/zwgpvwxdofjidshsiaek"},
- {title:"Digital Dojo",name:"ספריית הדרכה",status:"מחובר",note:"אותו חשבון מנהל ואותה כניסה. הרשאות מתקדמות זמינות בממשק הקיים.",url:"./admin.html"},
+ {title:"Digital Dojo",name:"ספריית הדרכה",status:health?.control_center?.online?"מחובר":"לבדיקת זמינות",note:"ניהול הסרטונים וההרשאות פועל בתוך מרכז הניהול המאוחד.",url:"./control.html?view=videos"},
  {title:"תשלומי הנבחרת",name:"תזמן / Invoice4U",status:"חיבור חלקי",note:"סיכומי החיוב זמינים ב־MFA; פעולות תשלום מחייבות עבודה דרך מערכת התשלומים הייעודית.",url:"https://raphysitruk-eng.github.io/ryoku-do-team-payments/admin.html"},
- {title:"תזכורות WhatsApp",name:"Railway + Supabase",status:"שליחה לא מחוברת",note:"ממשק תזכורות קיים, אך חיבור השליחה לקבוצות דורש השלמה. אין להניח שתזכורות נשלחו.",url:"https://zwgpvwxdofjidshsiaek.supabase.co/functions/v1/ryokudo-reminders-admin"},
- {title:"GitHub",name:"קוד ושינויים",status:"טכני",note:"ניהול קוד המקור של מרכז הבקרה ופורטל התשלומים.",url:"https://github.com/raphysitruk-eng/ryoku-do-team-payments"}
+ {title:"תזכורות WhatsApp",name:"Railway + Supabase",status:waMode,note:"בדיקת שרת מאובטחת בזמן אמת. מצב ההדגמה אינו מאפשר להסיק שהודעות נשלחות בפועל; יש לאשר חיבור קבוצות ושליחה בייצור בנפרד.",url:"https://ryokudo-reminder-server-production.up.railway.app/"},
+ {title:"GitHub",name:"קוד ושינויים",status:"פרסום פעיל",note:"פריסת GitHub Pages מתבצעת באופן אוטומטי לאחר שינוי קוד מאושר.",url:"https://github.com/raphysitruk-eng/ryoku-do-team-payments"},
+ {title:"הגנת סיסמאות",name:"Supabase Auth",status:"דורש הפעלה",note:"הגנת Leaked Password Protection נמצאה כבויה. יש להפעיל אותה בהגדרות Supabase Auth; הדבר אינו ניתן לשינוי דרך הרשאות החיבור הנוכחיות.",url:"https://supabase.com/docs/guides/auth/password-security#password-strength-and-leaked-password-protection"}
  ];
- return header("חיבורים ותשתיות","סקירה של מקורות הנתונים ושלבי האיחוד; ללא שמירת סיסמאות חיצוניות")+
+ return header("חיבורים ותשתיות","בדיקות זמינות חיות לצד סטטוס חיבור השירותים וההרשאות")+
+ incomplete("integrationHealth")+
+ (health?.checked_at?'<p class="muted-note">נבדק לאחרונה: '+H(formatTime(health.checked_at))+'</p>':"")+
  '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px">'+modules.map(m=>
  '<div class="panel"><div class="panel-head"><h2>'+H(m.title)+'</h2>'+tag(m.status,m.status==="מחובר"?"allow":m.status==="שליחה לא מחוברת"?"blocked":"draft")+'</div>'+
  '<div class="muted" style="font-size:12px">'+H(m.name)+'</div><p style="font-size:13px;line-height:1.8;margin:15px 0">'+H(m.note)+'</p>'+
