@@ -10,7 +10,7 @@ const vlabels={overview:"לוח בקרה",students:"חניכים והורים",r
 const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
 const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
 const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
-const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],roster:[],integrationHealth:null,rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],roster:[],integrationHealth:null,integrationBusy:false,rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
@@ -74,7 +74,6 @@ async function init(){
 async function refresh(){
  const jobs=[
   ["stats",()=>command("dashboard")],["identity",()=>command("identity")],
-  ["integrationHealth",()=>sb.functions.invoke("ryokudo-integration-status").then(requireData)],
   ["students",()=>listed("students")],["roster",()=>sb.rpc("ryokudo_roster_preview").then(requireData)],["groups",()=>listed("groups")],
   ["memberships",()=>listed("memberships")],["sessions",()=>listed("sessions")],
   ["leads",()=>listed("lead")],["tasks",()=>listed("task")],
@@ -96,7 +95,6 @@ async function refresh(){
    else if(key==="identity")S.identity={};
    else if(key==="videos")S.videos=[];
    else if(key==="roster")S.roster=[];
-   else if(key==="integrationHealth")S.integrationHealth=null;
    else if(["rankGrants","groupGrants","profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=[];
    else S.sets[key]=[];
    return;
@@ -106,7 +104,6 @@ async function refresh(){
   else if(key==="identity")S.identity=data;
   else if(key==="videos")S.videos=asArr(data);
   else if(key==="roster")S.roster=asArr(data.records);
-  else if(key==="integrationHealth")S.integrationHealth=data;
   else if(key==="rankGrants")S.rankGrants=asArr(data);
   else if(key==="groupGrants")S.groupGrants=asArr(data);
   else if(["profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=asArr(data);
@@ -114,7 +111,23 @@ async function refresh(){
  });
  $("navVideoCount").textContent=String(S.videos.length);
  render();
+ void refreshIntegrationHealth();
+
 }
+async function refreshIntegrationHealth(){
+ if(S.integrationBusy||S.profile?.role!=="admin")return;
+ S.integrationBusy=true;
+ try{
+  S.integrationHealth=requireData(await sb.functions.invoke("ryokudo-integration-status"));
+  delete S.fail.integrationHealth;
+ }catch(error){
+  S.integrationHealth=null;S.fail.integrationHealth=String(error?.message||error||"בדיקת החיבורים נכשלה");
+ }finally{
+  S.integrationBusy=false;
+  if(S.view==="overview"||S.view==="integrations")render();
+ }
+}
+
 function navigate(view){
  if(!vlabels[view])return;
  if(S.drawer&&!hideDrawer())return;
@@ -129,6 +142,7 @@ function navigate(view){
  $("sidebar").classList.remove("open");$("mobileShade").classList.remove("show");
  if(view==="content"&&!S.sets.event)loadContent();
  if(view==="payments"&&S.identity.finance_access&&!S.finance)loadFinance();
+ if(view==="integrations"&&!S.integrationHealth)void refreshIntegrationHealth();
  render();$("content").focus();
 }
 function render(){
