@@ -10,7 +10,7 @@ const vlabels={overview:"לוח בקרה",students:"חניכים והורים",g
 const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
 const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
 const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
-const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],search:"",busy:false,drawer:null,finance:null,advanced:false};
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],rankGrants:[],groupGrants:[],search:"",busy:false,drawer:null,finance:null,advanced:false};
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
@@ -63,7 +63,9 @@ async function refresh(){
   ["students",()=>listed("students")],["groups",()=>listed("groups")],
   ["memberships",()=>listed("memberships")],["sessions",()=>listed("sessions")],
   ["leads",()=>listed("lead")],["tasks",()=>listed("task")],
-  ["videos",()=>sb.from("training_videos").select("id,title_he,description_he,category,provider,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000).then(requireData)]
+  ["videos",()=>sb.from("training_videos").select("id,title_he,description_he,category,provider,provider_asset_id,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000).then(requireData)],
+  ["rankGrants",()=>sb.from("training_video_rank_grants").select("video_id,rank_key").limit(1000).then(requireData)],
+  ["groupGrants",()=>sb.from("training_video_group_grants").select("video_id,group_id").limit(1000).then(requireData)]
  ];
  let results=await Promise.allSettled(jobs.map(x=>x[1]()));
  results.forEach((r,i)=>{
@@ -73,6 +75,8 @@ async function refresh(){
   if(key==="stats")S.stats=data;
   else if(key==="identity")S.identity=data;
   else if(key==="videos")S.videos=asArr(data);
+  else if(key==="rankGrants")S.rankGrants=asArr(data);
+  else if(key==="groupGrants")S.groupGrants=asArr(data);
   else S.sets[key]=asArr(data);
  });
  $("navVideoCount").textContent=String(S.videos.length);
@@ -103,35 +107,62 @@ function filtered(list,getText){const q=S.search.trim().toLowerCase();return q?l
 function searchField(placeholder){return '<div class="toolbar"><label class="searchbox">'+I("search")+'<input id="searchInput" value="'+H(S.search)+'" placeholder="'+H(placeholder)+'" aria-label="חיפוש"></label></div>'}
 function incomplete(key){return errorOf(key)?message("לא ניתן לטעון את המודול כרגע: "+errorOf(key)):""}
 function overview(){
- const s=S.stats,financeSecure=S.identity?.finance_access;
- const cards='<div class="metric-grid">'+
- metric("חניכים פעילים",s.students??rows("students").filter(x=>x.active).length,"במאגר האקדמיה","users")+
- metric("קבוצות פעילות",s.groups??rows("groups").filter(x=>x.active).length,"סניפים וקבוצות","book","teal")+
- metric("פניות פתוחות",s.open_leads??rows("leads").length,"מעקב לקוחות והרשמה","search","amber")+
- metric("משימות דחופות",s.tasks_due??0,"לפי תאריך יעד","clock","rose")+'</div>';
- const hero='<div class="hero-card"><div><div class="eyebrow">ONE ACADEMY · ONE CONTROL CENTER</div><h2>האקדמיה כולה, ממסך אחד.</h2><p>חניכים, קבוצות, פניות, משימות, אימונים ותוכן — ממסד הנתונים הקיים, תחת הרשאת מנהל אחת.</p></div>'+button("new-task",I("plus")+" משימה חדשה","primary")+'</div>';
+ const st=S.stats||{},financeSecure=Boolean(S.identity?.finance_access);
+ const students=rows("students"),groups=rows("groups"),leads=rows("leads"),tasks=rows("tasks");
+ const activeTasks=tasks.filter(x=>x.status==="open"||x.status==="in_progress");
+ const openLeads=leads.filter(x=>!["registered","closed"].includes(x.status));
+ const dueTasks=activeTasks.filter(x=>x.due_at&&new Date(x.due_at)<=new Date());
+ const totalVideos=S.videos.length,published=S.videos.filter(x=>x.status==="published").length;
+ const drafts=S.videos.filter(x=>x.status==="draft").length,archived=Math.max(0,totalVideos-published-drafts);
+ const p1=totalVideos?Math.round(published/totalVideos*100):0;
+ const p2=totalVideos?Math.min(100,Math.round((published+drafts)/totalVideos*100)):0;
+ const metricText=(key,value)=>S.fail[key]?"—":String(value);
+ const numbers='<div class="metric-grid">'+
+ metric("חניכים במערכת",metricText("students",st.students??students.filter(x=>x.active).length),"לפי הרשומות הקיימות","users")+
+ metric("קבוצות פעילות",metricText("groups",st.groups??groups.filter(x=>x.active).length),"לפי סניפים וקבוצות","book","teal")+
+ metric("פניות פתוחות",metricText("leads",st.open_leads??openLeads.length),"מתעניינים למעקב","search","amber")+
+ metric("משימות דחופות",metricText("tasks",st.tasks_due??dueTasks.length),"משימות שהגיע מועדן","clock","rose")+'</div>';
+ const hero='<section class="hero-card"><div><div class="eyebrow">ONE ACADEMY · ONE WORKSPACE</div><h2>הכול מתחיל כאן.</h2><p>ניהול הפעילות, המעקב אחר חניכים, תפעול הקבוצות ותכני האקדמיה — מסביבת עבודה אחת, עם הרשאות המערכת הקיימות.</p></div>'+button("new-task",I("plus")+" יצירת משימה","primary")+'</section>';
+ const pipelineStages=[["new","פנייה חדשה"],["contacted","יצרנו קשר"],["booked","תואם שיעור"],["attended","הגיע לשיעור"],["registered","נרשם"]];
+ const max=Math.max(1,...pipelineStages.map(x=>leads.filter(y=>y.status===x[0]).length));
+ const pipeline='<div class="funnel">'+pipelineStages.map(stage=>{
+  const count=leads.filter(y=>y.status===stage[0]).length;
+  return '<div class="funnel-line"><span>'+H(stage[1])+'</span><div class="funnel-track"><div class="funnel-fill" style="width:'+(count?Math.max(6,Math.round(count/max*100)):0)+'%"></div></div><strong>'+count+'</strong></div>'
+ }).join("")+'</div>';
+ const donut='<div class="ops-donut"><div class="donut" style="--p1:'+p1+'%;--p2:'+p2+'%" role="img" aria-label="'+H(published+" פורסמו, "+drafts+" טיוטות, "+archived+" בארכיון")+'"><div class="donut-inside"><strong>'+totalVideos+'</strong><span>סרטונים</span></div></div>'+
+ '<div class="legend"><div class="legend-row"><span class="legend-marker"></span>מפורסמים<strong>'+published+'</strong></div><div class="legend-row"><span class="legend-marker gold"></span>טיוטות<strong>'+drafts+'</strong></div><div class="legend-row"><span class="legend-marker slate"></span>בארכיון<strong>'+archived+'</strong></div></div></div>';
  const modules=[
- ["students","חניכים והורים",rows("students").length+" רשומות","users"],
- ["groups","סניפים וקבוצות",rows("groups").length+" קבוצות","book"],
- ["sessions","אימונים ונוכחות",rows("sessions").length+" מפגשים בטווח","check"],
- ["leads","פניות והרשמות",rows("leads").length+" פניות","search"],
- ["tasks","משימות ומעקב",rows("tasks").length+" משימות","clock"],
- ["videos","ספריית וידאו",S.videos.length+" סרטונים","film"],
- ["payments","תשלומים",financeSecure?"אימות כספי פעיל":"מוגן באימות נוסף","shield"],
- ["integrations","מערכות חיצוניות","מפת חיבורים וסטטוסים","settings"]
+ ["students","חניכים והורים",students.length+" רשומות","users"],
+ ["groups","סניפים וקבוצות",groups.length+" קבוצות","book"],
+ ["sessions","אימונים ונוכחות",rows("sessions").length+" מפגשים בתקופה","check"],
+ ["leads","פניות והרשמות",openLeads.length+" פתוחות","search"],
+ ["tasks","משימות ומעקב",activeTasks.length+" פעילות","clock"],
+ ["videos","ספריית הדרכה",totalVideos+" סרטונים","film"],
+ ["payments","כספים וחיובים",financeSecure?"גישה עם MFA":"דורש MFA","shield"],
+ ["content","תוכן ואירועים","אירועים, מוצרים ומסמכים","settings"]
  ];
- const grid='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:13px">'+modules.map(m=>
- '<button class="quick-link" data-go="'+m[0]+'" style="min-height:85px">'+I(m[3])+'<span><strong style="display:block;font-size:14px">'+H(m[1])+'</strong><small class="muted">'+H(m[2])+'</small></span><span style="margin-right:auto">'+I("chevron")+'</span></button>').join("")+'</div>';
- const active=rows("tasks").filter(t=>t.status==="open"||t.status==="in_progress").slice(0,5);
- const t='<div class="quick-list">'+active.map(x=>'<button class="quick-link" data-item="task" data-id="'+H(x.id)+'"><span><strong>'+H(x.title)+'</strong><small class="muted">'+H(x.due_at?formatDate(x.due_at):"ללא תאריך יעד")+'</small></span></button>').join("")+'</div>';
- const note='<div class="alert-bar">'+I("shield")+' <span>חיבורי Wix, WhatsApp וספקי התשלום דורשים ממשקי API והרשאות משלהם. הנתונים הקיימים נשארו במקומם ולא אוחדו פיזית. פעולות כספיות נשארות מאחורי אימות MFA.</span></div>';
- return header("לוח הבקרה המרכזי","מבט אחד על פעילות Ryoku-Do",button("refresh",I("refresh")+" רענון נתונים","secondary"))+hero+cards+
- '<div style="margin-top:21px">'+panel("ניהול פעילות",grid)+'</div>'+
- '<div class="overview-grid">'+panel("משימות לטיפול",active.length?t:empty("אין משימות פתוחות",""))+
- panel("מצב שילוב המערכות",'<div class="subrow"><strong>חניכים, אימונים ולידים</strong>'+tag("מחובר","allow")+'</div>'+
- '<div class="subrow"><strong>ספריית וידאו</strong>'+tag("מחובר","allow")+'</div>'+
- '<div class="subrow"><strong>ניהול חיובים</strong>'+tag(financeSecure?"פעיל מאובטח":"דורש MFA","draft")+'</div>'+
- '<div class="subrow"><strong>WhatsApp אוטומטי</strong>'+tag("שליחה לא מחוברת","blocked")+'</div>')+'</div>'+note;
+ const grid='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(218px,1fr));gap:12px">'+modules.map(m=>
+ '<button class="quick-link" data-go="'+m[0]+'">'+I(m[3])+'<span><strong style="display:block">'+H(m[1])+'</strong><small class="muted">'+H(m[2])+'</small></span><span style="margin-right:auto;color:#8293a0">'+I("chevron")+'</span></button>').join("")+'</div>';
+ const pending=activeTasks.slice().sort((a,b)=>String(a.due_at||"9999").localeCompare(String(b.due_at||"9999"))).slice(0,5);
+ const taskList=pending.length?pending.map(x=>'<button class="activity-spot" style="width:100%;border-top:0;border-right:0;border-left:0;background:none;cursor:pointer;text-align:right" data-item="task" data-id="'+H(x.id)+'"><span class="spot-icon">'+I("clock")+'</span><span><strong>'+H(x.title||"משימה")+'</strong><small>'+H(x.due_at?formatDate(x.due_at):"ללא תאריך יעד")+'</small></span><span style="margin-right:auto">'+tag(x.status==="in_progress"?"בטיפול":"פתוחה","draft")+'</span></button>').join(""):empty("אין משימות פתוחות","כל המשימות הושלמו או טרם נפתחו");
+ const leadPanel=panel("משפך פניות",pipeline,'<button class="tiny-link" data-go="leads">לכל הפניות '+I("chevron")+'</button>');
+ const videoPanel=panel("מצב ספריית ההדרכה",donut,'<button class="tiny-link" data-go="videos">ניהול סרטונים '+I("chevron")+'</button>');
+ const taskPanel=panel("המשימות הקרובות",'<div class="quick-list">'+taskList+'</div>','<button class="tiny-link" data-go="tasks">צפה בכל המשימות '+I("chevron")+'</button>');
+ const statuses=[
+ ["ניהול חניכים וקבוצות",!S.fail.students&&!S.fail.groups,"מידע מתוך Supabase"],
+ ["ניהול ספריית הווידאו",!S.fail.videos,S.videos.length+" סרטונים בקטלוג"],
+ ["כספים וחיובים",financeSecure,"נתונים מוגנים ב־MFA"],
+ ["WhatsApp לשליחה לקבוצות",false,"החיבור לשיגור אוטומטי עדיין לא הושלם"]
+ ];
+ const syncPanel=panel("מפת מערכות",statuses.map(x=>
+  '<div class="subrow"><div><strong>'+H(x[0])+'</strong><small class="muted" style="display:block">'+H(x[2])+'</small></div><span class="control-chip '+(x[1]?"":"warning")+'"><span class="dot"></span>'+(x[1]?"זמין":"מוגבל")+'</span></div>').join(""),
+  '<button class="tiny-link" data-go="integrations">כל החיבורים '+I("chevron")+'</button>');
+ let errors=Object.keys(S.fail);const note=errors.length?message("חלק מהמודולים לא נטענו: "+errors.join(", ")+". ניתן לרענן או לבדוק את הרשאות המודול."):"";
+ return header("לוח הבקרה המרכזי","מבט מרוכז על הפעילות, השירות והתוכן באקדמיה",button("refresh",I("refresh")+" רענון נתונים","secondary"))+
+ hero+numbers+note+'<div class="ops-grid">'+leadPanel+videoPanel+'</div>'+
+ '<div style="margin-top:18px">'+panel("ניהול ופעולות",grid)+'</div>'+
+ '<div class="ops-grid">'+taskPanel+syncPanel+'</div>'+
+ '<div class="alert-bar">'+I("shield")+'<span>נתונים כספיים מחייבים אימות דו־שלבי. שירותים חיצוניים עדיין עשויים לדרוש חיבור ייעודי; ריכוז התצוגה אינו מבטל את מערכותיהם.</span></div>';
 }
 function students(){
  const all=filtered(rows("students"),x=>nameChild(x)+" "+x.branch+" "+x.group_name+" "+x.contact_email);
