@@ -251,12 +251,18 @@ function videos(){
  '<div class="alert-bar">'+I("info")+'<span>ההרשאות חלות על הצפייה בתוך האתר. YouTube ו־Google Drive עשויים לאפשר גישה ישירה לקישור ששיתף גורם אחר.</span></div>';
 }
 function payments(){
+ if(S.fail.identity){
+  return header("כספים וחיובים","בדיקת הרשאות ואבטחת גישה")+
+   message("לא ניתן לוודא הרשאות כספיות כעת: "+S.fail.identity);
+ }
  if(!S.identity.finance_access){
  return header("כספים וחיובים","הפרדה מאובטחת בין ניהול כללי לבין מידע פיננסי")+
  '<div class="panel" style="max-width:760px">'+I("lock")+'<h2 style="margin:12px 0">נדרש אימות דו־שלבי (MFA)</h2>'+
  '<p class="muted">המערכת הפיננסית הקיימת מחייבת התחברות ברמת AAL2. לא עקפתי את ההגנה הזאת. לאחר הפעלת אימות מתאים בחשבון המנהל, נתוני החיוב יוצגו כאן.</p>'+
  '<a class="btn secondary" target="_blank" rel="noopener noreferrer" href="https://raphysitruk-eng.github.io/ryoku-do-team-payments/admin.html">'+I("external")+' למערכת התשלומים הקיימת</a></div>';
  }
+ if(S.fail.finance)return header("כספים וחיובים","דו״ח מבוסס הרשאות MFA")+
+  message("לא ניתן לטעון את הדוח הפיננסי: "+S.fail.finance);
  if(!S.finance)return header("כספים וחיובים","דו״ח מבוסס הרשאות MFA")+'<div class="loading-canvas">טוען נתונים מוגנים…</div>';
  const m=S.finance.mandates||{},charges=asArr(S.finance.charges),alerts=asArr(S.finance.alerts);
  const totals='<div class="metric-grid">'+metric("הוראות קבע פעילות",m.active??0,"לפי מערכת חיובים","check","teal")+
