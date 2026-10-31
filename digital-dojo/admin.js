@@ -77,7 +77,7 @@ function dashboard(){
  var activity='<section class="panel"><div class="panel-head"><h2>פעילות אחרונה</h2><button class="tiny-link" data-action="go-activity">לכל הפעולות '+I("chevron")+'</button></div>'+(S.audit.length?timeline(6):'<div class="empty">טרם נרשמו שינויים</div>')+'</section>';
  var dist='<section class="panel"><div class="panel-head"><h2>תוכן לפי קטגוריה</h2><span class="tag">'+S.videos.length+' סרטונים</span></div>'+categoryDistribution()+'</section>';
  var quick='<section class="panel"><div class="panel-head"><h2>קיצורי דרך</h2></div><div class="quick-list">'+
- '<button class="quick-link" data-action="add-video">'+I("plus")+' הוספת סרטון חדש'+I("chevron").replace('svg>','svg class="arrow">')+'</button>'+
+ '<button class="quick-link" data-action="add-video">'+I("plus")+' הוספת סרטון חדש'+I("chevron")+'</button>'+
  '<button class="quick-link" data-action="go-permissions">'+I("shield")+' עריכת הרשאות לחגורות ולקבוצות'+I("chevron")+'</button>'+
  '<button class="quick-link" data-action="go-members">'+I("users")+' הסרת גישה או איפוס הרשאות'+I("chevron")+'</button>'+
  '</div></section>';
