@@ -491,7 +491,7 @@ async function attendanceEditor(session){
   if(S.drawer?.id!==session.id)return;
   const saved=new Map(asArr(response.items).map(m=>[m.child_id,m]));
   S.attendance={id:session.id,marks:saved,eligible:eligible.map(x=>x.id)};
-  const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Jerusalem",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+  const today=localDateTime(new Date()).slice(0,10);
   const locked=session.status==="completed"||session.status==="cancelled"||session.training_date>today;
   const trs=eligible.map(x=>{
    const mark=saved.get(x.id)||{};
@@ -508,7 +508,7 @@ async function attendanceEditor(session){
 async function saveAttendance(form,finalize){
  const session=rows("sessions").find(x=>x.id===S.drawer?.id),snapshot=S.attendance;
  if(!session||!snapshot||snapshot.id!==session.id)throw Error("נתוני האימון אינם זמינים");
- const today=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Jerusalem",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date());
+ const today=localDateTime(new Date()).slice(0,10);
  if(session.status==="completed"||session.status==="cancelled"||session.training_date>today)throw Error("לא ניתן לעדכן אימון נעול או עתידי");
  if(!snapshot.eligible.length)throw Error("אין חניכים זכאים לסימון");
  const f=new FormData(form),marks=snapshot.eligible.map(child_id=>{
