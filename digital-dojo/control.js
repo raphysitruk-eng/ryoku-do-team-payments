@@ -14,7 +14,7 @@ const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fai
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
-const rows=kind=>asArr(S.sets[kind]);
+const rows=kind=>asArr(S.sets[kind==='lead'?'leads':kind==='task'?'tasks':kind]);
 const errorOf=kind=>S.fail[kind]||"";
 const nameChild=c=>[c.first_name,c.last_name].filter(Boolean).join(" ")||"ללא שם";
 const nameGroup=id=>rows("groups").find(g=>g.id===id)?.name||"—";
@@ -299,7 +299,7 @@ async function saveItem(form){
  }
  const payload={kind,id:old?.id||null,rev:old?.rev,title,status,branch,child_id:old?.child_id||null,group_id:old?.group_id||null,related_id:old?.related_id||null,owner_id:old?.owner_id||null,due_at:kind==="task"?due:(old?.due_at||null),data};
  await command("item_save",payload,crypto.randomUUID());
- S.sets[kind]=await listed(kind);
+ S.sets[kind==='lead'?'leads':'tasks']=await listed(kind);
  hideDrawer();render();toast("השינויים נשמרו בהצלחה");
 }
 async function saveVideo(form){
