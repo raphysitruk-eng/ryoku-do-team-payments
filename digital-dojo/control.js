@@ -6,11 +6,11 @@ const sb=window.supabase?.createClient(API,KEY,{auth:{persistSession:true,autoRe
 const $=id=>document.getElementById(id);
 const H=x=>String(x==null?"":x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const I=name=>'<svg aria-hidden="true"><use href="#i-'+name+'"></use></svg>';
-const vlabels={overview:"לוח בקרה",students:"חניכים והורים",groups:"סניפים וקבוצות",sessions:"אימונים ונוכחות",leads:"פניות והרשמות",tasks:"משימות ומעקב",videos:"ספריית הדרכה",payments:"כספים וחיובים",content:"תוכן, ציוד ואירועים",integrations:"חיבורים ותשתיות",access:"משתמשים והרשאות",audit:"יומן פעילות"};
+const vlabels={overview:"לוח בקרה",students:"חניכים והורים",roster:"קליטת רשימות",groups:"סניפים וקבוצות",sessions:"אימונים ונוכחות",leads:"פניות והרשמות",tasks:"משימות ומעקב",videos:"ספריית הדרכה",payments:"כספים וחיובים",content:"תוכן, ציוד ואירועים",integrations:"חיבורים ותשתיות",access:"משתמשים והרשאות",audit:"יומן פעילות"};
 const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
 const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
 const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
-const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],roster:[],rankGrants:[],groupGrants:[],profiles:[],profileGrants:[],childGrants:[],blocks:[],audit:[],search:"",page:0,pageSize:25,busy:false,dirty:false,lastFocus:null,drawer:null,finance:null,advanced:false};
 const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
 const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
 const asArr=(x)=>Array.isArray(x)?x:[];
@@ -74,7 +74,7 @@ async function init(){
 async function refresh(){
  const jobs=[
   ["stats",()=>command("dashboard")],["identity",()=>command("identity")],
-  ["students",()=>listed("students")],["groups",()=>listed("groups")],
+  ["students",()=>listed("students")],["roster",()=>sb.rpc("ryokudo_roster_preview").then(requireData)],["groups",()=>listed("groups")],
   ["memberships",()=>listed("memberships")],["sessions",()=>listed("sessions")],
   ["leads",()=>listed("lead")],["tasks",()=>listed("task")],
   ["videos",()=>sb.from("training_videos").select("id,title_he,description_he,category,provider,provider_asset_id,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000).then(requireData)],
@@ -94,6 +94,7 @@ async function refresh(){
    if(key==="stats")S.stats={};
    else if(key==="identity")S.identity={};
    else if(key==="videos")S.videos=[];
+   else if(key==="roster")S.roster=[];
    else if(["rankGrants","groupGrants","profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=[];
    else S.sets[key]=[];
    return;
@@ -102,6 +103,7 @@ async function refresh(){
   if(key==="stats")S.stats=data;
   else if(key==="identity")S.identity=data;
   else if(key==="videos")S.videos=asArr(data);
+  else if(key==="roster")S.roster=asArr(data.records);
   else if(key==="rankGrants")S.rankGrants=asArr(data);
   else if(key==="groupGrants")S.groupGrants=asArr(data);
   else if(["profiles","profileGrants","childGrants","blocks","audit"].includes(key))S[key]=asArr(data);
@@ -129,7 +131,7 @@ function navigate(view){
 function render(){
  $("currentPageLabel").textContent=vlabels[S.view];
  document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===S.view));
- const pages={overview:overview,students:students,groups:groups,sessions:sessions,leads:leads,tasks:tasks,videos:videos,payments:payments,content:content,integrations:integrations,access:access,audit:auditPage};
+ const pages={overview:overview,students:students,roster:rosterPage,groups:groups,sessions:sessions,leads:leads,tasks:tasks,videos:videos,payments:payments,content:content,integrations:integrations,access:access,audit:auditPage};
  $("content").innerHTML=pages[S.view]();
 }
 function filtered(list,getText){const q=S.search.trim().toLowerCase();return q?list.filter(x=>String(getText(x)).toLowerCase().includes(q)):list}
@@ -162,6 +164,7 @@ function overview(){
  '<div class="legend"><div class="legend-row"><span class="legend-marker"></span>מפורסמים<strong>'+published+'</strong></div><div class="legend-row"><span class="legend-marker gold"></span>טיוטות<strong>'+drafts+'</strong></div><div class="legend-row"><span class="legend-marker slate"></span>בארכיון<strong>'+archived+'</strong></div></div></div>';
  const modules=[
  ["students","חניכים והורים",students.length+" רשומות","users"],
+ ["roster","קליטת רשימות",S.roster.length+" רשומות לבקרה","book"],
  ["groups","סניפים וקבוצות",groups.length+" קבוצות","book"],
  ["sessions","אימונים ונוכחות",rows("sessions").length+" מפגשים בתקופה","check"],
  ["leads","פניות והרשמות",openLeads.length+" פתוחות","search"],
@@ -192,6 +195,27 @@ function overview(){
  '<div style="margin-top:18px">'+panel("ניהול ופעולות",grid)+'</div>'+
  '<div class="ops-grid">'+taskPanel+syncPanel+'</div>'+
  '<div class="alert-bar">'+I("shield")+'<span>נתונים כספיים מחייבים אימות דו־שלבי. שירותים חיצוניים עדיין עשויים לדרוש חיבור ייעודי; ריכוז התצוגה אינו מבטל את מערכותיהם.</span></div>';
+}
+function rosterPage(){
+ const raw=asArr(S.roster);
+ const entries=filtered(raw,x=>[x.name,asArr(x.files).join(" "),x.batch].join(" "));
+ const found=raw.filter(x=>Number(x.existing_matches)>0).length;
+ const pending=raw.length-found;
+ const repeated=raw.filter(x=>asArr(x.files).length>1).length;
+ const items=entries.map(x=>
+  '<tr><td><strong>'+H(x.name)+'</strong></td>'+
+  '<td>'+asArr(x.files).map(y=>tag("קובץ "+y,"draft")).join(" ")+'</td>'+
+  '<td>'+tag(Number(x.existing_matches)===1?"התאמה אפשרית":Number(x.existing_matches)>1?"כמה התאמות":"לא נמצאה התאמה",Number(x.existing_matches)>1?"blocked":Number(x.existing_matches)===1?"allow":"draft")+'</td>'+
+  '<td>'+tag("ממתין לבקרה","draft")+'</td></tr>');
+ return header("קליטת רשימות וחניכים","רשימות CourseParticipants מ־31 באוקטובר 2026; נתוני המקור נשמרים בנפרד מהחניכים הפעילים")+
+ '<div class="metric-grid">'+metric("משתתפים שונים",raw.length,"אחרי הסרת כפילויות מקור","users")+
+ metric("התאמות אפשריות",found,"לפי השוואת שמות בלבד","check","teal")+
+ metric("טעונים שיוך",pending,"יש לוודא קבוצה וסניף","book","amber")+
+ metric("משתתפים בכמה קבצים",repeated,"דורשים בדיקת שיוך","shield")+'</div>'+
+ '<div class="alert-bar">'+I("shield")+'<span>הנתונים כאן הם רשימת בקרה מאובטחת, לא רישום חדש לחוגים. שמות הקבצים אינם שמות קבוצות. לא נוצרו שיוכים או חיובים, ויש לאשר התאמת חניך וקבוצה לפני קליטה למאגר הפעיל.</span></div>'+
+ incomplete("roster")+
+ panel("רשימת ביקורת",searchField("חיפוש לפי שם או מספר קובץ")+
+ (items.length?table(["שם מלא","קובצי מקור","התאמה למאגר","מצב"],items):empty("אין רשומות לצפייה","לא הועלו רשימות או שלא נמצאו תוצאות.")));
 }
 function students(){
  const all=filtered(rows("students"),x=>nameChild(x)+" "+x.branch+" "+x.group_name+" "+x.contact_email);
@@ -631,7 +655,7 @@ async function saveForm(form){
 }
 
 const GLOBAL_PAGES=[
- ["overview","לוח בקרה","grid"],["students","חניכים והורים","users"],
+ ["overview","לוח בקרה","grid"],["students","חניכים והורים","users"],["roster","קליטת רשימות","book"],
  ["groups","סניפים וקבוצות","book"],["sessions","אימונים ונוכחות","check"],
  ["leads","פניות והרשמות","search"],["tasks","משימות ומעקב","clock"],
  ["videos","ספריית הדרכה","film"],["payments","כספים וחיובים","shield"],
