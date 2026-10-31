@@ -110,7 +110,7 @@ yes(await query.upsert(o,{onConflict:"video_id,"+fk}));}
 function play(id){
 var v=S.videos.find(function(z){return z.id===id});if(!v)return;
 var media="";
-if(v.provider==="youtube"&&/^[\w-]{11}$/.test(v.provider_asset_id))media="https://www.youtube-nocookie.com/embed/"+v.provider_asset_id;
+if(v.provider==="youtube"&&/^[\w-]{11}$/.test(v.provider_asset_id)){media="https://www.youtube-nocookie.com/embed/"+v.provider_asset_id;try{var srcUrl=new URL(v.source_url),seconds=parseInt(srcUrl.searchParams.get("t")||srcUrl.searchParams.get("start")||"0",10);if(Number.isFinite(seconds)&&seconds>0&&seconds<14400)media+="?start="+seconds}catch(_e){}}
 if(v.provider==="google_drive"&&/^[\w-]{15,}$/.test(v.provider_asset_id))media="https://drive.google.com/file/d/"+v.provider_asset_id+"/preview";
 if(!media){tell("לא ניתן להציג את הקישור הזה בנגן.",true);return}
 $("playerTitle").textContent=v.title_he;$("playerContent").replaceChildren();
