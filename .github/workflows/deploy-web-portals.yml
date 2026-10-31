@@ -1,0 +1,57 @@
+name: Publish Ryoku-Do Web Portals
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '*.html'
+      - '*.css'
+      - '*.js'
+      - 'digital-dojo/**'
+      - 'assets/**'
+      - '.github/workflows/deploy-web-portals.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: ryokudo-github-pages
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Prepare static site artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          find . -maxdepth 1 -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.svg' -o -name '*.png' -o -name '*.webp' -o -name '*.ico' -o -name '*.txt' \) -exec cp {} _site/ \;
+          if [ -d digital-dojo ]; then
+            mkdir -p _site/digital-dojo
+            find digital-dojo -maxdepth 1 -type f \( -name '*.html' -o -name '*.css' -o -name '*.js' -o -name '*.svg' -o -name '*.png' -o -name '*.webp' \) -exec cp {} _site/digital-dojo/ \;
+          fi
+          if [ -d assets ]; then cp -R assets _site/assets; fi
+          touch _site/.nojekyll
+          test -s _site/digital-dojo/control.html
+          test -s _site/digital-dojo/control.js
+          test -s _site/digital-dojo/control.css
+          test -s _site/admin.html
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - name: Deploy Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
