@@ -193,15 +193,50 @@ async function loadAll(){
  var data=await Promise.all(jobs.map(function(x){return x[1]}));
  data.forEach(function(r,i){S[jobs[i][0]]=assert(r)||[]});
 }
+function isMissingAuthSession(error){
+ if(!error)return false;
+ var name=String(error.name||"");
+ var code=String(error.code||"");
+ var message=String(error.message||"");
+ return name==="AuthSessionMissingError"||code==="session_not_found"||code==="auth_session_missing"||/auth session missing|session missing/i.test(message);
+}
+function showLogin(message){
+ S.user=null;S.profile=null;
+ gate(message||"יש להתחבר עם חשבון מנהל מאושר.",true);
+}
 async function authorize(){
  if(!sb){gate("לא ניתן לטעון את שירות ההתחברות. יש לרענן את הדף.",false);return}
  try{
-  var auth=assert(await sb.auth.getUser());S.user=auth.user;
-  if(!S.user){gate("כניסה לחשבונות מנהל מאושרים בלבד.",true);return}
+  // An unauthenticated visitor is a normal state. Never call getUser or
+  // show a fatal page error when the browser has no saved session.
+  var sessionResponse=await sb.auth.getSession();
+  if(sessionResponse.error){
+   if(isMissingAuthSession(sessionResponse.error)){showLogin("יש להתחבר עם חשבון מנהל מאושר.");return}
+   throw sessionResponse.error;
+  }
+  if(!sessionResponse.data||!sessionResponse.data.session){
+   showLogin("יש להתחבר עם חשבון מנהל מאושר.");
+   return;
+  }
+  // getSession only checks local browser state; getUser verifies identity.
+  var auth=await sb.auth.getUser();
+  if(auth.error){
+   if(isMissingAuthSession(auth.error)){showLogin("תוקף ההתחברות פג. יש להתחבר מחדש.");return}
+   throw auth.error;
+  }
+  S.user=auth.data&&auth.data.user;
+  if(!S.user){showLogin("יש להתחבר עם חשבון מנהל מאושר.");return}
   S.profile=assert(await sb.from("profiles").select("id,full_name,email,role,approval_status").eq("id",S.user.id).single());
-  if(S.profile.role!=="admin"||S.profile.approval_status!=="approved"){gate("החשבון המחובר אינו בעל הרשאת מנהל. התחבר בחשבון המנהל או עבור לספריית החניכים.",true);return}
-  await loadAll();render();
- }catch(err){gate("לא ניתן לטעון את המערכת: "+(err.message||"שגיאת חיבור"),false)}
+  if(S.profile.role!=="admin"||S.profile.approval_status!=="approved"){
+   gate("החשבון המחובר אינו בעל הרשאת מנהל. התחבר בחשבון המנהל או עבור לספריית החניכים.",true);
+   return;
+  }
+  await loadAll();
+  render();
+ }catch(err){
+  if(isMissingAuthSession(err)){showLogin("תוקף ההתחברות פג. יש להתחבר מחדש.");return}
+  gate("לא ניתן לטעון את המערכת: "+(err.message||"שגיאת חיבור"),true);
+ }
 }
 async function mutate(task,okMessage){
  if(S.loading)return;S.loading=true;document.body.style.cursor="progress";
