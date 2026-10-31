@@ -10,7 +10,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="./admin.css">
+  <link rel="stylesheet" href="./admin.css"><link rel="stylesheet" href="./control.css?v=2">
 </head>
 <body>
 <svg class="sprite" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -74,7 +74,7 @@
 </nav>
     <div class="sidebar-spacer"></div>
     <div class="sidebar-divider"></div>
-    <a class="nav-item nav-anchor" href="./admin.html"><svg><use href="#i-film"/></svg> ניהול וידאו מתקדם</a>
+    <a class="nav-item nav-anchor" href="./admin.html"><svg><use href="#i-shield"/></svg> הרשאות סרטונים מורחבות</a>
     <a class="nav-item nav-anchor" href="https://www.ryokudoacademy.com/" target="_blank" rel="noopener noreferrer"><svg><use href="#i-external"/></svg> אתר האקדמיה</a>
     <div class="sidebar-account"><div class="avatar" id="accountAvatar">R</div><div class="account-info"><strong id="accountName">מנהל</strong><span>הרשאת מנהל</span></div><button id="logoutBtn" type="button" class="icon-button invert" title="התנתקות" aria-label="התנתקות"><svg><use href="#i-logout"/></svg></button></div>
   </aside>
@@ -85,9 +85,9 @@
         <span class="breadcrumb-root">האקדמיה</span><svg class="crumb-chevron"><use href="#i-chevron"/></svg><strong id="currentPageLabel">לוח בקרה</strong>
       </div>
       <div class="topbar-actions">
-        <span class="live-dot"><span></span> מסד נתונים מחובר</span>
+        <button type="button" class="top-search" id="openSearch" aria-label="חיפוש מהיר במערכת"><svg><use href="#i-search"/></svg> חיפוש מהיר <kbd>Ctrl K</kbd></button><span class="live-dot"><span></span> מרכז נתונים מאובטח</span>
         <button id="refreshBtn" type="button" class="icon-button" title="רענון נתונים" aria-label="רענון נתונים"><svg><use href="#i-refresh"/></svg></button>
-        <button id="topAddBtn" type="button" class="btn primary"><svg><use href="#i-plus"/></svg> סרטון חדש</button>
+        <button id="topAddBtn" type="button" class="btn primary"><svg><use href="#i-plus"/></svg> משימה חדשה</button>
       </div>
     </header>
     <main id="content" class="content" tabindex="-1">
@@ -107,7 +107,11 @@
   <h3 id="confirmTitle">אישור פעולה</h3><p id="confirmDescription"></p>
   <form method="dialog" class="confirm-actions"><button class="btn secondary" value="cancel">ביטול</button><button class="btn danger" id="confirmAccept" value="confirm">אישור הפעולה</button></form>
 </dialog>
+<dialog id="searchDialog" class="search-dialog" aria-label="חיפוש מהיר">
+<div class="search-input-row"><svg><use href="#i-search"/></svg><input id="globalSearchInput" type="search" placeholder="חפש מסך, חניך, פנייה או משימה…" autocomplete="off"></div>
+<div id="globalSearchResults" class="search-results"></div><div class="search-hint">Enter לפתיחה · Esc לסגירה · Ctrl+K לחיפוש מהיר</div>
+</dialog>
 <div id="toastStack" class="toast-stack" role="status" aria-live="polite"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.8/dist/umd/supabase.min.js"></script>
-<script src="./control.js?v=1" defer></script>
+<script src="./control.js?v=2" defer></script>
 </body></html>
