@@ -196,11 +196,53 @@ function tasks(){
  return header("משימות ומעקב","טיפול בפניות, משימות ארגוניות ומעקב ביצוע",button("new-task",I("plus")+" משימה חדשה","primary"))+
  incomplete("tasks")+panel("כל המשימות",searchField("חיפוש משימה או סניף")+(trs.length?table(["משימה","סניף","מצב","יעד","פעולות"],trs):empty("אין משימות","")));
 }
+const RANKS=[["white","לבנה"],["yellow","צהובה"],["orange","כתומה"],["green","ירוקה"],["blue","כחולה"],["brown","חומה"],["black","שחורה"]];
+const VIDEO_CATEGORIES=[["syllabus","סילבוס"],["kata","קאטות"],["kihon","קיהון"],["kumite","קומיטה"],["fitness","כושר"],["coach","מאמנים"],["other","אחר"]];
+const VIDEO_STATES=[["draft","טיוטה"],["published","פורסם למורשים"],["archived","ארכיון"]];
+const rankLabel=r=>RANKS.find(x=>x[0]===r)?.[1]||r;
+const categoryLabel=k=>VIDEO_CATEGORIES.find(x=>x[0]===k)?.[1]||k;
+function parseVideoSource(value){
+ let u;try{u=new URL(value)}catch(_){throw Error("יש להזין קישור וידאו תקין")}
+ if(u.protocol!=="https:")throw Error("קישור הוידאו חייב להיות מאובטח (HTTPS)");
+ const h=u.hostname.toLowerCase();
+ if(["youtube.com","www.youtube.com","m.youtube.com","www.youtube-nocookie.com","youtu.be","www.youtu.be"].includes(h)){
+  const id=h.endsWith("youtu.be")?u.pathname.split("/")[1]:u.searchParams.get("v")||(u.pathname.match(/\/(?:shorts|embed|live)\/([\w-]{11})/)||[])[1];
+  if(!/^[A-Za-z0-9_-]{11}$/.test(id||""))throw Error("קישור YouTube אינו תקין");
+  return {provider:"youtube",provider_asset_id:id,source_url:value};
+ }
+ if(h==="drive.google.com"){
+  const id=(u.pathname.match(/\/file\/d\/([A-Za-z0-9_-]+)/)||[])[1];
+  if(!/^[A-Za-z0-9_-]{15,}$/.test(id||""))throw Error("יש להזין קישור לקובץ וידאו ב־Google Drive, לא לתיקייה");
+  return {provider:"google_drive",provider_asset_id:id,source_url:value};
+ }
+ throw Error("כרגע ניתן להוסיף סרטוני YouTube או קובצי Google Drive בלבד");
+}
+function videoGrantCounts(id){
+ return {rank:S.rankGrants.filter(x=>x.video_id===id).length,group:S.groupGrants.filter(x=>x.video_id===id).length};
+}
 function videos(){
- const all=filtered(S.videos,v=>v.title_he+" "+v.category+" "+v.variant);
- const trs=all.map(v=>'<tr><td><strong>'+H(v.title_he)+'</strong></td><td>'+H(v.category==="kata"?"קאטות":v.category==="syllabus"?"סילבוס":v.category)+'</td><td>'+tag(v.status==="published"?"פורסם":v.status==="draft"?"טיוטה":"ארכיון",v.status==="published"?"allow":"draft")+'</td><td>'+H(v.provider==="google_drive"?"Google Drive":"YouTube")+'</td><td><button class="mini-action" data-item="video" data-id="'+H(v.id)+'">ערוך</button></td></tr>');
- return header("ספריית ההדרכה","ניהול תוכן הלימוד בתוך מרכז הניהול",'<a class="btn secondary" href="./admin.html?view=permissions">'+I("shield")+' הרשאות מתקדמות</a>')+
- incomplete("videos")+panel("סרטוני לימוד",searchField("קאטה, סילבוס או כותרת")+(trs.length?table(["סרטון","קטגוריה","פרסום","מקור","ניהול"],trs):empty("אין סרטונים","")));
+ const all=filtered(S.videos,v=>v.title_he+" "+v.category+" "+v.variant+" "+v.provider).slice().sort((a,b)=>(a.sort_order||0)-(b.sort_order||0)||a.title_he.localeCompare(b.title_he,"he"));
+ const published=S.videos.filter(v=>v.status==="published").length;
+ const draft=S.videos.filter(v=>v.status==="draft").length;
+ const trs=all.map(v=>{
+  const g=videoGrantCounts(v.id);
+  return '<tr><td><div class="td-primary"><span class="thumb">'+I("film")+'</span><div><strong>'+H(v.title_he)+'</strong><small>'+H(v.variant||"חומר לימוד")+'</small></div></div></td>'+
+   '<td>'+H(categoryLabel(v.category))+'</td>'+
+   '<td>'+tag(VIDEO_STATES.find(x=>x[0]===v.status)?.[1]||v.status,v.status==="published"?"allow":"draft")+'</td>'+
+   '<td><span class="token">'+I("shield")+' '+g.rank+' חגורות · '+g.group+' קבוצות</span></td>'+
+   '<td>'+H(v.provider==="google_drive"?"Google Drive":"YouTube")+'</td>'+
+   '<td><div class="button-row"><button class="mini-action" data-item="video" data-id="'+H(v.id)+'">ערוך</button><button class="mini-action" data-action="video-grants" data-id="'+H(v.id)+'">הרשאות</button></div></td></tr>';
+ });
+ return header("ספריית ההדרכה","פרסום סרטונים והגדרת הרשאות לפי חגורה וקבוצה — ללא מערכת ניהול נוספת",
+ button("new-video",I("plus")+" הוסף סרטון","primary"))+
+ '<div class="metric-grid" style="margin-bottom:18px">'+metric("סה״כ סרטונים",S.videos.length,"פריטים בקטלוג","film")+
+ metric("מפורסמים",published,"לפי הרשאות הגישה","eye","teal")+
+ metric("טיוטות",draft,"לא נגישות לחניכים","clock","amber")+
+ metric("שיוכי דרגה וקבוצה",S.rankGrants.length+S.groupGrants.length,"כללי גישה פעילים","shield")+'</div>'+
+ incomplete("videos")+incomplete("rankGrants")+incomplete("groupGrants")+
+ panel("קטלוג סרטונים",searchField("חפש קאטה, סילבוס, סרטון או מקור")+
+ (trs.length?table(["סרטון","קטגוריה","מצב","הרשאות","מקור","פעולות"],trs):empty("לא נמצאו סרטונים","נסה לשנות את מילות החיפוש.")))+
+ '<div class="alert-bar">'+I("info")+'<span>ההרשאות חלות על הצפייה בתוך האתר. YouTube ו־Google Drive עשויים לאפשר גישה ישירה לקישור ששיתף גורם אחר.</span></div>';
 }
 function payments(){
  if(!S.identity.finance_access){
@@ -299,15 +341,50 @@ function editorItem(kind,x){
  showDrawer(x?.title||(isLead?"פנייה חדשה":"משימה חדשה"),body,x?.id||null,kind);
 }
 function videoEditor(v){
- const body='<form id="videoForm" class="form-stack">'+
- '<div class="field"><label>כותרת הסרטון</label><input name="title" maxlength="180" value="'+H(v.title_he)+'" required></div>'+
- '<div class="field"><label>מצב פרסום</label><select name="status">'+[["draft","טיוטה"],["published","מפורסם למורשים"],["archived","ארכיון"]].map(x=>opt(x[0],x[1],v.status)).join("")+'</select></div>'+
- '<div class="field"><label>תיאור</label><textarea name="description" maxlength="1200">'+H(v.description_he||"")+'</textarea></div>'+
- '<div class="warning-box">פרסום אינו יוצר הרשאות גישה. זכאות נקבעת בנפרד לפי דרגה, קבוצה וחשבון.</div>'+
- '<button type="submit" class="btn primary full">'+I("check")+' שמור סרטון</button></form>'+
- '<div class="drawer-section"><a class="btn secondary full" href="./admin.html?view=permissions">'+I("shield")+' ניהול הרשאות צפייה מפורט</a></div>';
- showDrawer(v.title_he,body,v.id,"video");
+ const data=v||{title_he:"",description_he:"",status:"draft",category:"kata",source_url:"",variant:""};
+ const form='<form id="videoForm" class="form-stack">'+
+ '<div class="field"><label>כותרת הסרטון *</label><input name="title" maxlength="180" value="'+H(data.title_he)+'" required></div>'+
+ '<div class="field"><label>קישור YouTube או Google Drive *</label><input name="source_url" type="url" value="'+H(data.source_url)+'" required><span class="input-note">ניתן לצרף סרטון יחיד; לא קישור לתיקייה.</span></div>'+
+ '<div class="field-row"><div class="field"><label>קטגוריה</label><select name="category">'+VIDEO_CATEGORIES.map(x=>opt(x[0],x[1],data.category)).join("")+'</select></div>'+
+ '<div class="field"><label>מצב פרסום</label><select name="status">'+VIDEO_STATES.map(x=>opt(x[0],x[1],data.status)).join("")+'</select></div></div>'+
+ '<div class="field"><label>תת־כותרת</label><input name="variant" maxlength="100" value="'+H(data.variant)+'" placeholder="לדוגמה: הדגמה איטית"></div>'+
+ '<div class="field"><label>תיאור</label><textarea name="description" maxlength="1200">'+H(data.description_he)+'</textarea></div>'+
+ '<div class="warning-box">סרטון חדש אינו נגיש לחניכים עד לפרסום ולהגדרת הרשאות גישה. קישור פומבי למקור עצמו אינו מוגן.</div>'+
+ '<button type="submit" class="btn primary full">'+I("check")+' '+(v?"שמור סרטון":"צור סרטון")+'</button></form>';
+ showDrawer(v?.title_he||"הוספת סרטון",form,v?.id||null,"video");
 }
+function videoPermissionEditor(v){
+ if(!v)return toast("הסרטון אינו נמצא",true);
+ const grantedRanks=S.rankGrants.filter(x=>x.video_id===v.id).map(x=>x.rank_key);
+ const grantedGroups=S.groupGrants.filter(x=>x.video_id===v.id).map(x=>x.group_id);
+ const ranks=RANKS.map(x=>'<label class="check-choice"><input type="checkbox" name="rank" value="'+H(x[0])+'"'+(grantedRanks.includes(x[0])?" checked":"")+'>'+H(x[1])+'</label>').join("");
+ const groups=rows("groups").filter(g=>g.active).map(g=>'<label class="check-choice"><input type="checkbox" name="group" value="'+H(g.id)+'"'+(grantedGroups.includes(g.id)?" checked":"")+'><span>'+H(g.name)+'<small style="display:block;color:#91a0ad">'+H(g.branch||"")+'</small></span></label>').join("");
+ const body='<div class="drawer-section"><strong>'+H(v.title_he)+'</strong><div style="margin-top:9px">'+tag(v.status==="published"?"מפורסם":"טיוטה",v.status==="published"?"allow":"draft")+'</div></div>'+
+ '<form id="videoGrantsForm" class="form-stack"><h3 class="section-label">הרשאות לפי חגורה</h3><div class="check-grid">'+ranks+'</div>'+
+ '<h3 class="section-label">הרשאות לפי קבוצת אימון</h3><div class="check-grid">'+(groups||'<p class="muted">אין קבוצות פעילות</p>')+'</div>'+
+ '<div class="warning-box">חסימות והרשאות אישיות גוברות על הגדרות הדרגה. הגדרות חשבון וחניך ניתן לנהל במערכת החניכים המורחבת.</div>'+
+ '<button type="submit" class="btn primary full">'+I("check")+' שמור הרשאות</button></form>';
+ showDrawer("הרשאות צפייה",body,v.id,"video-grants");
+}
+async function saveVideoGrants(form){
+ const id=S.drawer?.id;if(!S.videos.some(v=>v.id===id))throw Error("לא נמצא סרטון");
+ const f=new FormData(form);
+ const rank=f.getAll("rank").map(String),groups=f.getAll("group").map(String);
+ const oldRank=S.rankGrants.filter(x=>x.video_id===id).map(x=>x.rank_key);
+ const oldGroup=S.groupGrants.filter(x=>x.video_id===id).map(x=>x.group_id);
+ const ops=[];
+ oldRank.filter(x=>!rank.includes(x)).forEach(k=>ops.push(sb.from("training_video_rank_grants").delete().eq("video_id",id).eq("rank_key",k)));
+ rank.filter(x=>!oldRank.includes(x)).forEach(k=>ops.push(sb.from("training_video_rank_grants").insert({video_id:id,rank_key:k})));
+ oldGroup.filter(x=>!groups.includes(x)).forEach(k=>ops.push(sb.from("training_video_group_grants").delete().eq("video_id",id).eq("group_id",k)));
+ groups.filter(x=>!oldGroup.includes(x)).forEach(k=>ops.push(sb.from("training_video_group_grants").insert({video_id:id,group_id:k})));
+ const results=await Promise.allSettled(ops);
+ if(results.some(x=>x.status==="rejected"||x.value?.error)){
+  await refresh();
+  throw Error("לא כל ההרשאות נשמרו; הנתונים רועננו. יש לבדוק את הרשאות הסרטון לפני ניסיון נוסף");
+ }
+ await refresh();hideDrawer();toast("הרשאות הסרטון נשמרו בהצלחה");
+}
+
 async function saveItem(form){
  let kind=S.drawer?.kind||"task",old=rows(kind).find(z=>z.id===S.drawer?.id),f=new FormData(form);
  let title=String(f.get("title")||"").trim(),status=String(f.get("status")||""),branch=String(f.get("branch")||"").trim();
@@ -334,18 +411,25 @@ async function saveItem(form){
  hideDrawer();render();toast("השינויים נשמרו בהצלחה");
 }
 async function saveVideo(form){
- const old=S.videos.find(v=>v.id===S.drawer?.id);if(!old)throw Error("סרטון לא נמצא");
+ const old=S.videos.find(v=>v.id===S.drawer?.id);
  const f=new FormData(form),title=String(f.get("title")||"").trim(),status=String(f.get("status")||"");
- if(title.length<2||!["draft","published","archived"].includes(status))throw Error("נתוני סרטון לא תקינים");
- requireData(await sb.from("training_videos").update({title_he:title,status,description_he:String(f.get("description")||"").trim(),updated_at:new Date().toISOString()}).eq("id",old.id).select("id").single());
- S.videos=requireData(await sb.from("training_videos").select("id,title_he,description_he,category,provider,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000));
- hideDrawer();render();toast("פרטי הסרטון נשמרו");
+ const category=String(f.get("category")||"");
+ if(title.length<2||!VIDEO_STATES.some(x=>x[0]===status)||!VIDEO_CATEGORIES.some(x=>x[0]===category))throw Error("נתוני סרטון לא תקינים");
+ const source=parseVideoSource(String(f.get("source_url")||"").trim());
+ const data={title_he:title,status,category,...source,description_he:String(f.get("description")||"").trim(),variant:String(f.get("variant")||"").trim(),updated_at:new Date().toISOString()};
+ if(old){
+  requireData(await sb.from("training_videos").update(data).eq("id",old.id).select("id").single());
+ }else{
+  data.slug="video-"+Date.now().toString(36)+"-"+Math.random().toString(36).slice(2,7);
+  requireData(await sb.from("training_videos").insert(data).select("id").single());
+ }
+ await refresh();hideDrawer();toast(old?"פרטי הסרטון נשמרו":"הסרטון נוסף לספרייה");
 }
 async function saveForm(form){
  if(S.busy)return;
  S.busy=true;let buttonNode=form.querySelector('button[type="submit"]');
  if(buttonNode)buttonNode.disabled=true;
- try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form)}
+ try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form);else if(form.id==="videoGrantsForm")await saveVideoGrants(form)}
  catch(err){toast(err.message||"שמירה נכשלה",true)}
  finally{S.busy=false;if(buttonNode)buttonNode.disabled=false}
 }
@@ -357,6 +441,8 @@ document.addEventListener("click",async e=>{
  const act=action.dataset.action;
  if(act==="refresh"){await refresh();toast("הנתונים עודכנו");return}
  if(act==="new-task"){editorItem("task",null);return}
+ if(act==="new-video"){videoEditor(null);return}
+ if(act==="video-grants"){videoPermissionEditor(S.videos.find(v=>v.id===action.dataset.id));return}
 });
 document.addEventListener("input",e=>{
  if(e.target.id==="searchInput"){
@@ -365,7 +451,7 @@ document.addEventListener("input",e=>{
 });
 document.addEventListener("submit",async e=>{
  const form=e.target;
- if(!["loginForm","itemForm","videoForm"].includes(form.id))return;
+ if(!["loginForm","itemForm","videoForm","videoGrantsForm"].includes(form.id))return;
  e.preventDefault();
  if(form.id==="loginForm"){
   let btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
