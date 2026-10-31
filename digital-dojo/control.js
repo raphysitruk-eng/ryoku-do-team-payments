@@ -1,0 +1,359 @@
+(function(){
+"use strict";
+const API="https://zwgpvwxdofjidshsiaek.supabase.co";
+const KEY="sb_publishable_ghdkoJZwwRIvKTsRJXr2xA_Jhfi9NS6";
+const sb=window.supabase?.createClient(API,KEY,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
+const $=id=>document.getElementById(id);
+const H=x=>String(x==null?"":x).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const I=name=>'<svg aria-hidden="true"><use href="#i-'+name+'"></use></svg>';
+const vlabels={overview:"לוח בקרה",students:"חניכים והורים",groups:"סניפים וקבוצות",sessions:"אימונים ונוכחות",leads:"פניות והרשמות",tasks:"משימות ומעקב",videos:"ספריית הדרכה",payments:"כספים וחיובים",content:"תוכן, ציוד ואירועים",integrations:"חיבורים ותשתיות"};
+const types={lead:"פנייה",task:"משימה",event:"אירוע",product:"מוצר",resource:"חומר לימוד"};
+const leadStages=[["new","חדש"],["contacted","יצרנו קשר"],["booked","נקבע שיעור"],["attended","השתתף"],["registered","נרשם"],["closed","נסגר"]];
+const taskStages=[["open","פתוח"],["in_progress","בטיפול"],["done","הושלם"],["cancelled","בוטל"]];
+const S={user:null,profile:null,view:"overview",stats:{},identity:{},sets:{},fail:{},videos:[],search:"",busy:false,drawer:null,finance:null,advanced:false};
+const opt=(v,label,selected)=>'<option value="'+H(v)+'"'+(String(v)===String(selected)?" selected":"")+'>'+H(label)+'</option>';
+const toast=(message,error)=>{const a=document.createElement("div");a.className="toast"+(error?" error":"");a.innerHTML=I(error?"info":"check")+'<span>'+H(message)+'</span>';$("toastStack").appendChild(a);setTimeout(()=>a.remove(),5000)};
+const asArr=(x)=>Array.isArray(x)?x:[];
+const rows=kind=>asArr(S.sets[kind]);
+const errorOf=kind=>S.fail[kind]||"";
+const nameChild=c=>[c.first_name,c.last_name].filter(Boolean).join(" ")||"ללא שם";
+const nameGroup=id=>rows("groups").find(g=>g.id===id)?.name||"—";
+const formatDate=d=>{if(!d)return"—";let x=new Date(d);return Number.isNaN(x.getTime())?"—":x.toLocaleDateString("he-IL",{day:"numeric",month:"short",year:"numeric"})};
+const formatTime=d=>{if(!d)return"—";let x=new Date(d);return Number.isNaN(x.getTime())?"—":x.toLocaleString("he-IL",{dateStyle:"short",timeStyle:"short"})};
+const tag=(text,kind="")=>'<span class="tag '+H(kind)+'">'+H(text)+'</span>';
+const button=(act,text,cls="",id="")=>'<button type="button" class="btn '+H(cls)+'" data-action="'+H(act)+'"'+(id?' data-id="'+H(id)+'"':"")+'>'+text+'</button>';
+const header=(title,desc,actions="")=>'<div class="content-head"><div><div class="eyebrow">RYOKU-DO CONTROL CENTER</div><h1>'+H(title)+'</h1><p>'+H(desc)+'</p></div><div class="actions">'+actions+'</div></div>';
+const panel=(title,body,extra="")=>'<section class="panel"><div class="panel-head"><h2>'+H(title)+'</h2>'+extra+'</div>'+body+'</section>';
+const empty=(title,msg)=>'<div class="empty"><span class="empty-icon">'+I("info")+'</span><strong>'+H(title)+'</strong>'+H(msg||"")+'</div>';
+const metric=(title,num,detail,icon,color="")=>'<div class="metric '+color+'"><div class="label"><span>'+H(title)+'</span><span class="icon-swatch">'+I(icon)+'</span></div><div class="number">'+H(num)+'</div><div class="note">'+H(detail)+'</div></div>';
+const message=txt=>'<div class="alert-bar">'+I("info")+'<span>'+H(txt)+'</span></div>';
+const table=(headers,body,cls="")=>'<div class="table-wrap"><table class="data-table '+cls+'"><thead><tr>'+headers.map(x=>'<th>'+H(x)+'</th>').join("")+'</tr></thead><tbody>'+body.join("")+'</tbody></table></div>';
+function login(msg,show=true){
+ $("shell").classList.add("hide");$("authGate").classList.remove("hide");$("gateMessage").textContent=msg||"כניסה למנהלים מורשים בלבד";
+ $("loginForm").classList.toggle("hide",!show);
+}
+function requireData(res){if(res.error)throw res.error;if(res.data?.ok===false)throw Error(res.data.error||"הפעולה נכשלה");return res.data}
+async function command(action,payload={},requestId=null){return requireData(await sb.rpc("academy_command",{p_action:action,p_payload:payload,p_request_id:requestId}))}
+async function listed(kind,params={}){
+ const res=await command("list",{kind,...params});
+ return asArr(res.items);
+}
+function missingAuth(err){return ["AuthSessionMissingError","session_not_found","auth_session_missing"].includes(err?.name)||/auth session missing|session missing/i.test(String(err?.message||""))}
+async function init(){
+ if(!sb){login("שירות האימות לא נטען. בדוק חיבור לאינטרנט.",false);return}
+ try{
+  const sr=await sb.auth.getSession();
+  if(sr.error){if(missingAuth(sr.error)){login("יש להתחבר עם חשבון מנהל.",true);return}throw sr.error}
+  if(!sr.data?.session){login("יש להתחבר עם חשבון מנהל.",true);return}
+  const u=await sb.auth.getUser();
+  if(u.error){if(missingAuth(u.error)){login("פג תוקף ההתחברות. יש להתחבר שוב.",true);return}throw u.error}
+  S.user=u.data?.user;
+  if(!S.user){login("יש להתחבר עם חשבון מנהל.",true);return}
+  S.profile=requireData(await sb.from("profiles").select("id,role,approval_status,full_name,email").eq("id",S.user.id).single());
+  if(S.profile.role!=="admin"||S.profile.approval_status!=="approved"){login("החשבון אינו מורשה לניהול האקדמיה. ניתן להיכנס עם חשבון מנהל מאושר בלבד.",true);return}
+  $("authGate").classList.add("hide");$("shell").classList.remove("hide");
+  const name=S.profile.full_name||S.profile.email||"מנהל";
+  $("accountName").textContent=name;$("accountAvatar").textContent=name.slice(0,1);
+  await refresh();
+ }catch(e){login("לא ניתן לטעון נתונים: "+(e.message||"שגיאת חיבור"),true)}
+}
+async function refresh(){
+ const jobs=[
+  ["stats",()=>command("dashboard")],["identity",()=>command("identity")],
+  ["students",()=>listed("students")],["groups",()=>listed("groups")],
+  ["memberships",()=>listed("memberships")],["sessions",()=>listed("sessions")],
+  ["leads",()=>listed("lead")],["tasks",()=>listed("task")],
+  ["videos",()=>sb.from("training_videos").select("id,title_he,description_he,category,provider,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000).then(requireData)]
+ ];
+ let results=await Promise.allSettled(jobs.map(x=>x[1]()));
+ results.forEach((r,i)=>{
+  let key=jobs[i][0];
+  if(r.status==="rejected"){S.fail[key]=String(r.reason?.message||r.reason);return}
+  delete S.fail[key];const data=r.value;
+  if(key==="stats")S.stats=data;
+  else if(key==="identity")S.identity=data;
+  else if(key==="videos")S.videos=asArr(data);
+  else S.sets[key]=asArr(data);
+ });
+ $("navVideoCount").textContent=String(S.videos.length);
+ render();
+}
+function navigate(view){
+ if(!vlabels[view])return;
+ S.view=view;S.search="";S.drawer=null;hideDrawer();
+ const url=new URL(location.href);url.searchParams.set("view",view);
+ history.replaceState(null,"",url.pathname+url.search);
+ document.querySelectorAll("[data-view]").forEach(el=>{
+  el.classList.toggle("active",el.dataset.view===view);
+  if(el.dataset.view===view)el.setAttribute("aria-current","page");else el.removeAttribute("aria-current");
+ });
+ $("currentPageLabel").textContent=vlabels[view];
+ $("sidebar").classList.remove("open");$("mobileShade").classList.remove("show");
+ if(view==="content"&&!S.sets.event)loadContent();
+ if(view==="payments"&&S.identity.finance_access&&!S.finance)loadFinance();
+ render();$("content").focus();
+}
+function render(){
+ $("currentPageLabel").textContent=vlabels[S.view];
+ document.querySelectorAll("[data-view]").forEach(el=>el.classList.toggle("active",el.dataset.view===S.view));
+ const pages={overview:overview,students:students,groups:groups,sessions:sessions,leads:leads,tasks:tasks,videos:videos,payments:payments,content:content,integrations:integrations};
+ $("content").innerHTML=pages[S.view]();
+}
+function filtered(list,getText){const q=S.search.trim().toLowerCase();return q?list.filter(x=>String(getText(x)).toLowerCase().includes(q)):list}
+function searchField(placeholder){return '<div class="toolbar"><label class="searchbox">'+I("search")+'<input id="searchInput" value="'+H(S.search)+'" placeholder="'+H(placeholder)+'" aria-label="חיפוש"></label></div>'}
+function incomplete(key){return errorOf(key)?message("לא ניתן לטעון את המודול כרגע: "+errorOf(key)):""}
+function overview(){
+ const s=S.stats,financeSecure=S.identity?.finance_access;
+ const cards='<div class="metric-grid">'+
+ metric("חניכים פעילים",s.students??rows("students").filter(x=>x.active).length,"במאגר האקדמיה","users")+
+ metric("קבוצות פעילות",s.groups??rows("groups").filter(x=>x.active).length,"סניפים וקבוצות","book","teal")+
+ metric("פניות פתוחות",s.open_leads??rows("leads").length,"מעקב לקוחות והרשמה","search","amber")+
+ metric("משימות דחופות",s.tasks_due??0,"לפי תאריך יעד","clock","rose")+'</div>';
+ const hero='<div class="hero-card"><div><div class="eyebrow">ONE ACADEMY · ONE CONTROL CENTER</div><h2>האקדמיה כולה, ממסך אחד.</h2><p>חניכים, קבוצות, פניות, משימות, אימונים ותוכן — ממסד הנתונים הקיים, תחת הרשאת מנהל אחת.</p></div>'+button("new-task",I("plus")+" משימה חדשה","primary")+'</div>';
+ const modules=[
+ ["students","חניכים והורים",rows("students").length+" רשומות","users"],
+ ["groups","סניפים וקבוצות",rows("groups").length+" קבוצות","book"],
+ ["sessions","אימונים ונוכחות",rows("sessions").length+" מפגשים בטווח","check"],
+ ["leads","פניות והרשמות",rows("leads").length+" פניות","search"],
+ ["tasks","משימות ומעקב",rows("tasks").length+" משימות","clock"],
+ ["videos","ספריית וידאו",S.videos.length+" סרטונים","film"],
+ ["payments","תשלומים",financeSecure?"אימות כספי פעיל":"מוגן באימות נוסף","shield"],
+ ["integrations","מערכות חיצוניות","מפת חיבורים וסטטוסים","settings"]
+ ];
+ const grid='<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:13px">'+modules.map(m=>
+ '<button class="quick-link" data-go="'+m[0]+'" style="min-height:85px">'+I(m[3])+'<span><strong style="display:block;font-size:14px">'+H(m[1])+'</strong><small class="muted">'+H(m[2])+'</small></span><span style="margin-right:auto">'+I("chevron")+'</span></button>').join("")+'</div>';
+ const active=rows("tasks").filter(t=>t.status==="open"||t.status==="in_progress").slice(0,5);
+ const t='<div class="quick-list">'+active.map(x=>'<button class="quick-link" data-item="task" data-id="'+H(x.id)+'"><span><strong>'+H(x.title)+'</strong><small class="muted">'+H(x.due_at?formatDate(x.due_at):"ללא תאריך יעד")+'</small></span></button>').join("")+'</div>';
+ const note='<div class="alert-bar">'+I("shield")+' <span>חיבורי Wix, WhatsApp וספקי התשלום דורשים ממשקי API והרשאות משלהם. הנתונים הקיימים נשארו במקומם ולא אוחדו פיזית. פעולות כספיות נשארות מאחורי אימות MFA.</span></div>';
+ return header("לוח הבקרה המרכזי","מבט אחד על פעילות Ryoku-Do",button("refresh",I("refresh")+" רענון נתונים","secondary"))+hero+cards+
+ '<div style="margin-top:21px">'+panel("ניהול פעילות",grid)+'</div>'+
+ '<div class="overview-grid">'+panel("משימות לטיפול",active.length?t:empty("אין משימות פתוחות",""))+
+ panel("מצב שילוב המערכות",'<div class="subrow"><strong>חניכים, אימונים ולידים</strong>'+tag("מחובר","allow")+'</div>'+
+ '<div class="subrow"><strong>ספריית וידאו</strong>'+tag("מחובר","allow")+'</div>'+
+ '<div class="subrow"><strong>ניהול חיובים</strong>'+tag(financeSecure?"פעיל מאובטח":"דורש MFA","draft")+'</div>'+
+ '<div class="subrow"><strong>WhatsApp אוטומטי</strong>'+tag("שליחה לא מחוברת","blocked")+'</div>')+'</div>'+note;
+}
+function students(){
+ const all=filtered(rows("students"),x=>nameChild(x)+" "+x.branch+" "+x.group_name+" "+x.contact_email);
+ const trs=all.map(c=>'<tr><td><strong>'+H(nameChild(c))+'</strong></td><td>'+H(c.current_rank||"לא הוגדרה")+'</td><td>'+H(c.branch||"—")+'</td><td>'+H(c.group_name||"—")+'</td><td>'+tag(c.active?"פעיל":"לא פעיל",c.active?"allow":"draft")+'</td><td><button class="mini-action" data-item="student" data-id="'+H(c.id)+'">פרטים</button></td></tr>');
+ return header("חניכים והורים","תמונת תלמידים מתוך מערכת האקדמיה")+incomplete("students")+panel("מאגר חניכים",searchField("שם, סניף או קבוצה")+(trs.length?table(["חניך","דרגה","סניף","קבוצה","מצב","פרטים"],trs):empty("אין חניכים להצגה","לא נמצאו רשומות לחיפוש")));
+}
+function groups(){
+ const all=filtered(rows("groups"),x=>x.name+" "+x.branch+" "+x.code);
+ const memberships=rows("memberships");
+ const trs=all.map(g=>{const count=memberships.filter(m=>m.group_id===g.id&&m.status==="active").length;return '<tr><td><strong>'+H(g.name)+'</strong><small class="muted" style="display:block">'+H(g.code||"")+'</small></td><td>'+H(g.branch||"—")+'</td><td>'+count+'</td><td>'+H(g.capacity??"—")+'</td><td>'+tag(g.active?"פעילה":"לא פעילה",g.active?"allow":"draft")+'</td><td><button class="mini-action" data-item="group" data-id="'+H(g.id)+'">לצפייה</button></td></tr>'});
+ return header("סניפים וקבוצות","קבוצות פעילות ושיוכי חניכים")+
+ incomplete("groups")+panel("קבוצות וסניפים",searchField("שם קבוצה, סניף או קוד")+(trs.length?table(["קבוצה","סניף","חניכים רשומים","קיבולת","מצב","פרטים"],trs):empty("לא נמצאו קבוצות","")));
+}
+function sessions(){
+ const all=filtered(rows("sessions"),x=>nameGroup(x.group_id)+" "+x.training_date+" "+x.status);
+ const trs=all.map(s=>'<tr><td><strong>'+H(nameGroup(s.group_id))+'</strong></td><td>'+H(s.training_date||"—")+'</td><td>'+H((s.starts_at||"").slice(0,5))+'–'+H((s.ends_at||"").slice(0,5))+'</td><td>'+tag(s.status||"—",s.status==="completed"?"allow":"draft")+'</td><td><button class="mini-action" data-item="session" data-id="'+H(s.id)+'">נוכחות</button></td></tr>');
+ return header("אימונים ונוכחות","מפגשים בטווח ברירת המחדל של המערכת: 90 ימים אחורה ו־30 ימים קדימה")+
+ incomplete("sessions")+panel("אימונים",searchField("שם קבוצה או תאריך")+(trs.length?table(["קבוצה","תאריך","שעות","מצב","נוכחות"],trs):empty("אין אימונים בתקופה","")));
+}
+function leads(){
+ const all=filtered(rows("leads"),x=>x.title+" "+x.branch+" "+x.status+" "+JSON.stringify(x.data||{}));
+ const label=s=>leadStages.find(x=>x[0]===s)?.[1]||s;
+ const trs=all.map(x=>'<tr><td><strong>'+H(x.title||"פנייה")+'</strong></td><td>'+H(x.branch||"—")+'</td><td>'+tag(label(x.status),x.status==="registered"?"allow":"draft")+'</td><td>'+H(formatDate(x.created_at))+'</td><td><button class="mini-action" data-item="lead" data-id="'+H(x.id)+'">עדכן סטטוס</button></td></tr>');
+ return header("פניות והרשמות","מעקב אחרי מתעניינים משלב הפנייה ועד לרישום")+
+ incomplete("leads")+panel("פניות פעילות והיסטוריות",searchField("שם, סניף או סטטוס")+(trs.length?table(["פנייה","סניף","סטטוס","נפתח","ניהול"],trs):empty("לא נמצאו פניות","")));
+}
+function tasks(){
+ const all=filtered(rows("tasks"),x=>x.title+" "+x.branch+" "+x.status);
+ const label=s=>taskStages.find(x=>x[0]===s)?.[1]||s;
+ const trs=all.map(x=>'<tr><td><strong>'+H(x.title||"משימה")+'</strong></td><td>'+H(x.branch||"כללי")+'</td><td>'+tag(label(x.status),x.status==="done"?"allow":x.status==="cancelled"?"blocked":"draft")+'</td><td>'+H(formatDate(x.due_at))+'</td><td><button class="mini-action" data-item="task" data-id="'+H(x.id)+'">ערוך</button></td></tr>');
+ return header("משימות ומעקב","טיפול בפניות, משימות ארגוניות ומעקב ביצוע",button("new-task",I("plus")+" משימה חדשה","primary"))+
+ incomplete("tasks")+panel("כל המשימות",searchField("חיפוש משימה או סניף")+(trs.length?table(["משימה","סניף","מצב","יעד","פעולות"],trs):empty("אין משימות","")));
+}
+function videos(){
+ const all=filtered(S.videos,v=>v.title_he+" "+v.category+" "+v.variant);
+ const trs=all.map(v=>'<tr><td><strong>'+H(v.title_he)+'</strong></td><td>'+H(v.category==="kata"?"קאטות":v.category==="syllabus"?"סילבוס":v.category)+'</td><td>'+tag(v.status==="published"?"פורסם":v.status==="draft"?"טיוטה":"ארכיון",v.status==="published"?"allow":"draft")+'</td><td>'+H(v.provider==="google_drive"?"Google Drive":"YouTube")+'</td><td><button class="mini-action" data-item="video" data-id="'+H(v.id)+'">ערוך</button></td></tr>');
+ return header("ספריית ההדרכה","ניהול תוכן הלימוד בתוך מרכז הניהול",'<a class="btn secondary" href="./admin.html?view=permissions">'+I("shield")+' הרשאות מתקדמות</a>')+
+ incomplete("videos")+panel("סרטוני לימוד",searchField("קאטה, סילבוס או כותרת")+(trs.length?table(["סרטון","קטגוריה","פרסום","מקור","ניהול"],trs):empty("אין סרטונים","")));
+}
+function payments(){
+ if(!S.identity.finance_access){
+ return header("כספים וחיובים","הפרדה מאובטחת בין ניהול כללי לבין מידע פיננסי")+
+ '<div class="panel" style="max-width:760px">'+I("lock")+'<h2 style="margin:12px 0">נדרש אימות דו־שלבי (MFA)</h2>'+
+ '<p class="muted">המערכת הפיננסית הקיימת מחייבת התחברות ברמת AAL2. לא עקפתי את ההגנה הזאת. לאחר הפעלת אימות מתאים בחשבון המנהל, נתוני החיוב יוצגו כאן.</p>'+
+ '<a class="btn secondary" target="_blank" rel="noopener noreferrer" href="https://raphysitruk-eng.github.io/ryoku-do-team-payments/admin.html">'+I("external")+' למערכת התשלומים הקיימת</a></div>';
+ }
+ if(!S.finance)return header("כספים וחיובים","דו״ח מבוסס הרשאות MFA")+'<div class="loading-canvas">טוען נתונים מוגנים…</div>';
+ const m=S.finance.mandates||{},charges=asArr(S.finance.charges),alerts=asArr(S.finance.alerts);
+ const totals='<div class="metric-grid">'+metric("הוראות קבע פעילות",m.active??0,"לפי מערכת חיובים","check","teal")+
+ metric("חיובים ממתינים",m.pending??0,"דורשים מעקב","clock","amber")+
+ metric("חיוב חודשי צפוי",Math.round((m.expected_monthly_agorot||0)/100).toLocaleString("he-IL")+" ₪","מבוסס הוראות קבע","grid")+
+ metric("התראות כספיות",alerts.length,"התראות פתוחות","shield","rose")+'</div>';
+ const trs=charges.slice(0,100).map(c=>'<tr><td>'+H(c.charge_date||"")+'</td><td>'+H(c.outcome||"")+'</td><td>'+H(c.actual_amount_agorot==null?"—":Math.round(c.actual_amount_agorot/100)+" ₪")+'</td><td>'+H(c.document_outcome||"—")+'</td></tr>');
+ return header("כספים וחיובים","תצוגת בקרה בלבד; פעולות סליקה מתבצעות דרך השירות המאושר")+
+ totals+'<div style="margin-top:18px">'+panel("תנועות דיווח אחרונות",trs.length?table(["תאריך","תוצאה","סכום","מסמך"],trs):empty("אין תנועות להצגה",""))+'</div>';
+}
+async function loadFinance(){try{S.finance=await command("finance_report");delete S.fail.finance}catch(e){S.fail.finance=String(e.message||e)}render()}
+async function loadContent(){
+ const jobs=[["event","event"],["product","product"],["resource","resource"]];
+ const result=await Promise.allSettled(jobs.map(x=>listed(x[1])));
+ result.forEach((r,i)=>{if(r.status==="fulfilled")S.sets[jobs[i][0]]=r.value;else S.fail[jobs[i][0]]=String(r.reason?.message||r.reason)});
+ render();
+}
+function content(){
+ let sections=["event","product","resource"].map(kind=>{
+  const a=rows(kind),list=filtered(a,x=>x.title+" "+x.status+" "+x.branch);
+  const trs=list.map(x=>'<tr><td><strong>'+H(x.title||"—")+'</strong></td><td>'+H(x.branch||"—")+'</td><td>'+tag(x.status)+'</td><td>'+H(formatDate(x.updated_at))+'</td></tr>');
+  return panel({event:"אירועים ותחרויות",product:"ציוד ומוצרים",resource:"קבצי הדרכה ומסמכים"}[kind],incomplete(kind)+(trs.length?table(["פריט","סניף","מצב","עודכן"],trs):empty("אין פריטים מוצגים","אפשר להמשיך לעבוד במערכת המקור עד חיבור כל פעולות העריכה.")));
+ });
+ return header("תוכן, ציוד ואירועים","ניהול מידע ארגוני קיים; חיבור פעולות עריכה מתקדמות נמצא בהמשך")+
+ '<div class="report-grid">'+sections.join("")+'</div>';
+}
+function integrations(){
+ const modules=[
+ {title:"אתר האקדמיה",name:"ryokudoacademy.com",status:"חיבור חלקי",note:"מערכת האתר הפעיל מנוהלת בנפרד. לא בוצעה עריכת דפים מאזור הניהול הזה.",url:"https://www.ryokudoacademy.com/management.html"},
+ {title:"Supabase",name:"נתונים, משתמשים והרשאות",status:"מחובר",note:"ממשקי החניכים, הקבוצות, המשימות והוידאו משתמשים במידע כאן.",url:"https://supabase.com/dashboard/project/zwgpvwxdofjidshsiaek"},
+ {title:"Digital Dojo",name:"ספריית הדרכה",status:"מחובר",note:"אותו חשבון מנהל ואותה כניסה. הרשאות מתקדמות זמינות בממשק הקיים.",url:"./admin.html"},
+ {title:"תשלומי הנבחרת",name:"תזמן / Invoice4U",status:"חיבור חלקי",note:"סיכומי החיוב זמינים ב־MFA; פעולות תשלום מחייבות עבודה דרך מערכת התשלומים הייעודית.",url:"https://raphysitruk-eng.github.io/ryoku-do-team-payments/admin.html"},
+ {title:"תזכורות WhatsApp",name:"Railway + Supabase",status:"שליחה לא מחוברת",note:"ממשק תזכורות קיים, אך חיבור השליחה לקבוצות דורש השלמה. אין להניח שתזכורות נשלחו.",url:"https://zwgpvwxdofjidshsiaek.supabase.co/functions/v1/ryokudo-reminders-admin"},
+ {title:"GitHub",name:"קוד ושינויים",status:"טכני",note:"ניהול קוד המקור של מרכז הבקרה ופורטל התשלומים.",url:"https://github.com/raphysitruk-eng/ryoku-do-team-payments"}
+ ];
+ return header("חיבורים ותשתיות","סקירה של מקורות הנתונים ושלבי האיחוד; ללא שמירת סיסמאות חיצוניות")+
+ '<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(285px,1fr));gap:14px">'+modules.map(m=>
+ '<div class="panel"><div class="panel-head"><h2>'+H(m.title)+'</h2>'+tag(m.status,m.status==="מחובר"?"allow":m.status==="שליחה לא מחוברת"?"blocked":"draft")+'</div>'+
+ '<div class="muted" style="font-size:12px">'+H(m.name)+'</div><p style="font-size:13px;line-height:1.8;margin:15px 0">'+H(m.note)+'</p>'+
+ '<a class="btn secondary" target="_blank" rel="noopener noreferrer" href="'+H(m.url)+'">'+I("external")+' מעבר לשירות</a></div>').join("")+'</div>'+
+ message("איחוד חזותי ואיחוד כניסת מנהל למודולים מבוססי Supabase אינם שקולים עדיין לאיחוד מלא של ממשקי ה־API של Wix, WhatsApp וספקי הסליקה. הם ימשיכו לפעול במערכותיהם עד להשלמת החיבור.");
+}
+function showDrawer(title,body,id,kind){
+ S.drawer={id:id||null,kind:kind};
+ $("drawerEyebrow").textContent="RYOKU-DO CONTROL CENTER";
+ $("drawerTitle").textContent=title;
+ $("drawerBody").innerHTML=body;
+ $("drawer").classList.remove("hide");$("drawerShade").classList.remove("hide");
+ document.body.style.overflow="hidden";$("drawerClose").focus();
+}
+function hideDrawer(){$("drawer").classList.add("hide");$("drawerShade").classList.add("hide");document.body.style.overflow="";S.drawer=null}
+function chooseItem(kind,id){
+ let a=(kind==="video"?S.videos:rows(kind)),x=a.find(t=>t.id===id);
+ if(!x)return toast("לא ניתן למצוא את הפריט",true);
+ if(kind==="task"||kind==="lead"){editorItem(kind,x);return}
+ if(kind==="video"){videoEditor(x);return}
+ if(kind==="student"){
+  let body='<div class="drawer-section"><h3>'+H(nameChild(x))+'</h3><p>סניף: '+H(x.branch||"—")+' · קבוצה: '+H(x.group_name||"—")+'</p><p>חגורה נוכחית: '+H(x.current_rank||"—")+' · דרגה הבאה: '+H(x.next_rank||"—")+'</p></div>'+
+  panel("פרטי קשר",'<p>טלפון: '+H(x.contact_phone||"לא הוגדר")+'</p><p>דוא״ל: '+H(x.contact_email||"לא הוגדר")+'</p>');
+  showDrawer(nameChild(x),body,x.id,kind);return
+ }
+ if(kind==="group"){
+  const count=rows("memberships").filter(m=>m.group_id===x.id&&m.status==="active").length;
+  let body='<div class="drawer-section"><h3>'+H(x.name)+'</h3><p>סניף: '+H(x.branch||"—")+'</p><p>חניכים פעילים בקבוצה: '+count+'</p><p>קיבולת: '+H(x.capacity??"—")+'</p></div>';
+  showDrawer(x.name,body,x.id,kind);return;
+ }
+ if(kind==="session"){
+  showDrawer(nameGroup(x.group_id)+" · "+x.training_date,'<div class="loading-canvas"><div class="spinner"></div>טוען נוכחות…</div>',id,kind);
+  command("list",{kind:"attendance",session_id:x.id}).then(res=>{
+   if(!S.drawer||S.drawer.id!==id)return;
+   const a=asArr(res.items),list=a.map(z=>'<div class="subrow"><strong>'+H(nameChild(rows("students").find(c=>c.id===z.child_id)||{}))+'</strong>'+tag(z.status||"לא מסומן")+'</div>').join("");
+   $("drawerBody").innerHTML=a.length?list:empty("אין רישומי נוכחות","לא נמצאו רישומים למפגש.");
+  }).catch(err=>{$("drawerBody").innerHTML=message(err.message||"לא ניתן לטעון נוכחות")});return;
+ }
+}
+function editorItem(kind,x){
+ const isLead=kind==="lead",options=isLead?leadStages:taskStages;
+ const data=x?.data||{},selected=x?.status||(isLead?"new":"open");
+ const body='<form id="itemForm" class="form-stack">'+
+ '<div class="field"><label>כותרת *</label><input name="title" maxlength="180" value="'+H(x?.title||"")+'" required></div>'+
+ '<div class="field-row"><div class="field"><label>מצב</label><select name="status">'+options.map(z=>opt(z[0],z[1],selected)).join("")+'</select></div>'+
+ '<div class="field"><label>סניף</label><input name="branch" value="'+H(x?.branch||"")+'" maxlength="80"></div></div>'+
+ (isLead?'<div class="field"><label>סיבת סגירה, אם סוגרים פנייה</label><input name="loss_reason" value="'+H(data.loss_reason||"")+'"></div>'+
+ '<div class="field"><label>אסמכתת רישום, אם מסמנים נרשם</label><input name="enrollment_reference" value="'+H(data.enrollment_reference||"")+'"></div>':
+ '<div class="field"><label>תאריך יעד</label><input type="datetime-local" name="due_at" value="'+H(x?.due_at?new Date(x.due_at).toISOString().slice(0,16):"")+'"></div>')+
+ '<p class="muted-note">הנתונים הקיימים נשמרים. השינוי עובר דרך מנגנון הבקרה והיומן של האקדמיה.</p>'+
+ '<button type="submit" class="btn primary full">'+I("check")+' שמור שינויים</button></form>';
+ showDrawer(x?.title||(isLead?"פנייה חדשה":"משימה חדשה"),body,x?.id||null,kind);
+}
+function videoEditor(v){
+ const body='<form id="videoForm" class="form-stack">'+
+ '<div class="field"><label>כותרת הסרטון</label><input name="title" maxlength="180" value="'+H(v.title_he)+'" required></div>'+
+ '<div class="field"><label>מצב פרסום</label><select name="status">'+[["draft","טיוטה"],["published","מפורסם למורשים"],["archived","ארכיון"]].map(x=>opt(x[0],x[1],v.status)).join("")+'</select></div>'+
+ '<div class="field"><label>תיאור</label><textarea name="description" maxlength="1200">'+H(v.description_he||"")+'</textarea></div>'+
+ '<div class="warning-box">פרסום אינו יוצר הרשאות גישה. זכאות נקבעת בנפרד לפי דרגה, קבוצה וחשבון.</div>'+
+ '<button type="submit" class="btn primary full">'+I("check")+' שמור סרטון</button></form>'+
+ '<div class="drawer-section"><a class="btn secondary full" href="./admin.html?view=permissions">'+I("shield")+' ניהול הרשאות צפייה מפורט</a></div>';
+ showDrawer(v.title_he,body,v.id,"video");
+}
+async function saveItem(form){
+ let kind=S.drawer?.kind||"task",old=rows(kind).find(z=>z.id===S.drawer?.id),f=new FormData(form);
+ let title=String(f.get("title")||"").trim(),status=String(f.get("status")||""),branch=String(f.get("branch")||"").trim();
+ if(title.length<2)throw Error("חובה להזין כותרת");
+ if(kind==="lead"&&!leadStages.some(x=>x[0]===status))throw Error("סטטוס פנייה אינו מוכר");
+ if(kind==="task"&&!taskStages.some(x=>x[0]===status))throw Error("סטטוס משימה אינו מוכר");
+ let data={...(old?.data||{})};
+ if(kind==="lead"){
+  let reason=String(f.get("loss_reason")||"").trim(),enroll=String(f.get("enrollment_reference")||"").trim();
+  if(reason)data.loss_reason=reason;
+  if(enroll)data.enrollment_reference=enroll;
+  if(status==="closed"&&!data.loss_reason)throw Error("יש למלא סיבת סגירה");
+  if(status==="registered"&&!old?.child_id&&!data.enrollment_reference)throw Error("לסטטוס נרשם נדרשת אסמכתת רישום");
+ }
+ let due=null;
+ if(kind==="task"&&f.get("due_at")){
+  const date=new Date(String(f.get("due_at")));
+  if(isNaN(date.getTime()))throw Error("תאריך יעד אינו תקין");
+  due=date.toISOString();
+ }
+ const payload={kind,id:old?.id||null,rev:old?.rev,title,status,branch,child_id:old?.child_id||null,group_id:old?.group_id||null,related_id:old?.related_id||null,owner_id:old?.owner_id||null,due_at:kind==="task"?due:(old?.due_at||null),data};
+ await command("item_save",payload,crypto.randomUUID());
+ S.sets[kind]=await listed(kind);
+ hideDrawer();render();toast("השינויים נשמרו בהצלחה");
+}
+async function saveVideo(form){
+ const old=S.videos.find(v=>v.id===S.drawer?.id);if(!old)throw Error("סרטון לא נמצא");
+ const f=new FormData(form),title=String(f.get("title")||"").trim(),status=String(f.get("status")||"");
+ if(title.length<2||!["draft","published","archived"].includes(status))throw Error("נתוני סרטון לא תקינים");
+ requireData(await sb.from("training_videos").update({title_he:title,status,description_he:String(f.get("description")||"").trim(),updated_at:new Date().toISOString()}).eq("id",old.id).select("id").single());
+ S.videos=requireData(await sb.from("training_videos").select("id,title_he,description_he,category,provider,status,source_url,variant,rank_hint,sort_order,updated_at").order("sort_order",{ascending:true}).limit(1000));
+ hideDrawer();render();toast("פרטי הסרטון נשמרו");
+}
+async function saveForm(form){
+ if(S.busy)return;
+ S.busy=true;let buttonNode=form.querySelector('button[type="submit"]');
+ if(buttonNode)buttonNode.disabled=true;
+ try{if(form.id==="itemForm")await saveItem(form);else if(form.id==="videoForm")await saveVideo(form)}
+ catch(err){toast(err.message||"שמירה נכשלה",true)}
+ finally{S.busy=false;if(buttonNode)buttonNode.disabled=false}
+}
+document.addEventListener("click",async e=>{
+ const nav=e.target.closest("[data-view]");if(nav){navigate(nav.dataset.view);return}
+ const card=e.target.closest("[data-go]");if(card){navigate(card.dataset.go);return}
+ const target=e.target.closest("[data-item]");if(target){chooseItem(target.dataset.item,target.dataset.id);return}
+ const action=e.target.closest("[data-action]");if(!action)return;
+ const act=action.dataset.action;
+ if(act==="refresh"){await refresh();toast("הנתונים עודכנו");return}
+ if(act==="new-task"){editorItem("task",null);return}
+});
+document.addEventListener("input",e=>{
+ if(e.target.id==="searchInput"){
+  const value=e.target.value,position=e.target.selectionStart;
+  S.search=value;render();const node=$("searchInput");if(node){node.focus();try{node.setSelectionRange(position,position)}catch(_){}}}
+});
+document.addEventListener("submit",async e=>{
+ const form=e.target;
+ if(!["loginForm","itemForm","videoForm"].includes(form.id))return;
+ e.preventDefault();
+ if(form.id==="loginForm"){
+  let btn=form.querySelector('button[type="submit"]');if(btn)btn.disabled=true;
+  try{requireData(await sb.auth.signInWithPassword({email:$("email").value.trim(),password:$("password").value}));await init()}
+  catch(err){login("הכניסה נכשלה. בדוק פרטי מנהל.",true);toast(err.message||"שגיאת התחברות",true)}
+  finally{if(btn)btn.disabled=false}
+  return;
+ }
+ if(S.profile?.role!=="admin")return;
+ await saveForm(form);
+});
+$("drawerClose").addEventListener("click",hideDrawer);
+$("drawerShade").addEventListener("click",hideDrawer);
+$("menuToggle").addEventListener("click",()=>{$("sidebar").classList.toggle("open");$("mobileShade").classList.toggle("show")});
+$("mobileShade").addEventListener("click",()=>{$("sidebar").classList.remove("open");$("mobileShade").classList.remove("show")});
+$("refreshBtn").addEventListener("click",refresh);
+$("topAddBtn").addEventListener("click",()=>editorItem("task",null));
+$("logoutBtn").addEventListener("click",async()=>{try{requireData(await sb.auth.signOut());S.profile=null;S.user=null;login("התנתקת בהצלחה.",true)}catch(err){toast("ההתנתקות נכשלה",true)}});
+document.addEventListener("keydown",e=>{if(e.key==="Escape"&&S.drawer)hideDrawer()});
+try{const wanted=new URLSearchParams(location.search).get("view");if(vlabels[wanted])S.view=wanted}catch(_){}
+init();
+})();
