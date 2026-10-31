@@ -416,7 +416,7 @@ function showDrawer(title,body,id,kind){
 }
 function hideDrawer(){$("drawer").classList.add("hide");$("drawerShade").classList.add("hide");document.body.style.overflow="";S.drawer=null}
 function chooseItem(kind,id){
- let a=(kind==="video"?S.videos:rows(kind)),x=a.find(t=>t.id===id);
+ let a=kind==="video"?S.videos:kind==="profile"?S.profiles:rows(kind),x=a.find(t=>t.id===id);
  if(!x)return toast("לא ניתן למצוא את הפריט",true);
  if(kind==="task"||kind==="lead"){editorItem(kind,x);return}
  if(kind==="video"){videoEditor(x);return}
